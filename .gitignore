@@ -7,3 +7,6 @@ coverage/
 .env
 .env.local
 .scratch/
+apps/desktop/smoke.log
+apps/desktop/smoke.out
+apps/desktop/smoke.err

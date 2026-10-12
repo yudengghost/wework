@@ -1,0 +1,25 @@
+{
+  "name": "@buddy/desktop",
+  "version": "0.0.0",
+  "productName": "Buddy",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/main.cjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@buddy/core": "0.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "electron": "33.2.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.2"
+  }
+}

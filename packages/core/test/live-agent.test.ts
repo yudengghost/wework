@@ -1,13 +1,20 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  ConfigStore,
+  EmployeeStore,
+  FileStore,
+  MessageLog,
+  RoomService,
+  RoomStore,
   createCodexAdapter,
   createSystemEnvironment,
   resolveLauncher,
+  createAdapterForEmployee,
   type AgentEvent,
 } from "../src/index";
 
@@ -68,4 +75,51 @@ describe.skipIf(!liveEnabled)("真实 Codex CLI 联调", () => {
     expect(result.sessionRef).toBeTruthy();
     expect(events.some((event) => event.type === "usage")).toBe(true);
   }, 180000);
+});
+
+describe.skipIf(!liveEnabled)("真实房间端到端联调", () => {
+  it("人类 @员工 后，员工在房间里产出回复", async () => {
+    const store = new FileStore();
+    const config = new ConfigStore(store, join(workDir, "config.json"));
+    await config.load();
+    const employees = new EmployeeStore(store, join(workDir, "employees.json"));
+    await employees.load();
+    const rooms = new RoomStore(store, join(workDir, "rooms.json"));
+    await rooms.load();
+    const messages = new MessageLog(store, workDir);
+
+    const service = new RoomService({
+      config,
+      employees,
+      rooms,
+      messages,
+      createAdapter: (employee) =>
+        createAdapterForEmployee({ employee, launchers: config.get().launchers }),
+    });
+
+    const workspaceDir = join(workDir, "workspace");
+    await mkdir(workspaceDir, { recursive: true });
+    const employee = await employees.create({
+      displayName: "小码",
+      framework: "codex",
+      workspaceDir,
+      stateDir: join(workDir, "state"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    const room = await rooms.create({ name: "联调房间", memberIds: [employee.id] });
+
+    await service.submitHumanMessage(room.id, "@小码 Reply with exactly one word: pong");
+    await service.waitForIdle();
+
+    const all = await messages.readAll(room.id);
+    console.log(
+      `[live-room] messages=${all.length} kinds=${all.map((item) => item.sender.kind).join(",")} reply=${JSON.stringify(all.at(-1)?.body)}`,
+    );
+
+    expect(all).toHaveLength(2);
+    expect(all[1]?.sender).toEqual({ kind: "employee", employeeId: employee.id });
+    expect((all[1]?.body ?? "").toLowerCase()).toContain("pong");
+    expect(employees.get(employee.id)?.sessionRef).toBeTruthy();
+  }, 240000);
 });

@@ -21,3 +21,6 @@ export * from "./adapters/buildArgs";
 export * from "./adapters/parseCodexLine";
 export * from "./adapters/parseClaudeLine";
 export * from "./adapters/cliAgentAdapter";
+export * from "./adapters/createAdapter";
+export * from "./room/mentions";
+export * from "./room/roomService";
