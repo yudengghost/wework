@@ -37,7 +37,11 @@ export function App() {
   const [approvals, setApprovals] = useState<ApprovalEvent[]>([]);
   const [panel, setPanel] = useState<Panel>("none");
   const [createRoomOpen, setCreateRoomOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{
+    id: string;
+    name: string;
+    kind: "group" | "direct";
+  } | null>(null);
   const [adoptRoom, setAdoptRoom] = useState<{ id: string; name: string } | null>(null);
 
   const roomRef = useRef<string | null>(null);
@@ -354,7 +358,11 @@ export function App() {
               await reload();
             }}
             onDeleteRoom={() =>
-              setConfirmDelete({ id: selectedRoom.id, name: selectedRoom.name })
+              setConfirmDelete({
+                id: selectedRoom.id,
+                name: selectedRoom.name,
+                kind: selectedRoom.kind,
+              })
             }
             readOnly={!selectedRoom.memberIds.some((id) =>
               boot.employees.some((item) => item.id === id),
@@ -477,9 +485,18 @@ export function App() {
 
       {confirmDelete && (
         <ConfirmDialog
-          title={`确定要解散「${confirmDelete.name}」？`}
-          body="房间与它的消息记录会被删除。员工本身、它们的工作目录与记忆都不受影响。"
-          confirmLabel="解散"
+          // 单聊房间的名字就是员工的名字，写「解散」会让人以为要删掉这个人——必须按类型分开措辞。
+          title={
+            confirmDelete.kind === "direct"
+              ? `删除与「${confirmDelete.name}」的聊天记录？`
+              : `确定要解散「${confirmDelete.name}」？`
+          }
+          body={
+            confirmDelete.kind === "direct"
+              ? "只会删掉这个会话的消息记录。员工本身、它的工作目录与长期记忆都不会动。"
+              : "房间与它的消息记录会被删除。员工本身、它们的工作目录与记忆都不受影响。"
+          }
+          confirmLabel={confirmDelete.kind === "direct" ? "删除记录" : "解散"}
           onCancel={() => setConfirmDelete(null)}
           onConfirm={() => {
             const target = confirmDelete;
@@ -489,7 +506,11 @@ export function App() {
               .then(async () => {
                 if (selectedRoomId === target.id) setSelectedRoomId(null);
                 await reload();
-                pushNotice(`已解散「${target.name}」`);
+                pushNotice(
+                  target.kind === "direct"
+                    ? `已删除与「${target.name}」的聊天记录`
+                    : `已解散「${target.name}」`,
+                );
               })
               .catch((cause: unknown) => setError(String(cause)));
           }}
