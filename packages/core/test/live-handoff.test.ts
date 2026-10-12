@@ -8,6 +8,7 @@ import {
   ConfigStore,
   CursorStore,
   EmployeeStore,
+  EventBus,
   FileStore,
   MemoryStore,
   MessageLog,
@@ -16,6 +17,7 @@ import {
   createAdapterForEmployee,
   loadPromptPack,
   type AgentRunRequest,
+  type RoomServiceEvents,
 } from "../src/index";
 
 /**
@@ -59,7 +61,7 @@ describe.skipIf(!liveEnabled)("真机接力：员工把活交给另一位员工"
     // 记录每位员工实际看到的提示词，用来确认 <team> 块确实送达。
     const seen: { employeeId: string; hadTeamBlock: boolean; prompt: string }[] = [];
     const started: string[] = [];
-    const events = new (await import("../src/index")).EventBus();
+    const events = new EventBus<RoomServiceEvents>();
 
     const service = new RoomService({
       config,
