@@ -2,6 +2,7 @@ import type { Framework } from "../domain/schema";
 import type { LaunchSpec } from "../launcher/resolveLauncher";
 import { ProcessRunner } from "../process/processRunner";
 import { buildClaudeArgs, buildCodexArgs } from "./buildArgs";
+import { defaultPromptPack, type PromptPack } from "../prompts/promptPack";
 import {
   buildStdinPayload,
   type AgentAdapter,
@@ -27,6 +28,7 @@ export class CliAgentAdapter implements AgentAdapter {
     private readonly runner: ProcessRunner,
     private readonly planArgs: ArgsPlanner,
     private readonly parseLine: LineParser,
+    private readonly prompts: PromptPack = defaultPromptPack(),
   ) {}
 
   async run(
@@ -61,7 +63,7 @@ export class CliAgentAdapter implements AgentAdapter {
       command: this.spec.command,
       args: [...this.spec.baseArgs, ...this.planArgs(request)],
       cwd: request.cwd,
-      stdin: buildStdinPayload(request),
+      stdin: buildStdinPayload(request, this.prompts),
       timeoutMs: request.timeoutMs,
       signal: request.signal,
       onStdoutLine: (line) => emit(this.parseLine(line)),

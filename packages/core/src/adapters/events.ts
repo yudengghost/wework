@@ -1,5 +1,6 @@
 import type { PermissionPolicy } from "../domain/schema";
 import type { Framework } from "../domain/schema";
+import { defaultPromptPack, render, type PromptPack } from "../prompts/promptPack";
 
 /** 适配器层对外暴露的统一事件。上层的房间/调度器只认这些事件，不认任何框架的私有格式。 */
 export type AgentEvent =
@@ -60,8 +61,11 @@ export interface AgentAdapter {
  * `%VAR%` 与 `^`，走 argv 会静默损坏文本。代价是职责块属于用户消息的一部分而非真正的
  * system prompt；升级路径见设计文档（Claude 的 `--append-system-prompt-file`、Codex 的 AGENTS.md）。
  */
-export function buildStdinPayload(request: AgentRunRequest): string {
+export function buildStdinPayload(
+  request: AgentRunRequest,
+  prompts: PromptPack = defaultPromptPack(),
+): string {
   const role = request.systemPrompt?.trim();
   if (!role) return `${request.prompt}\n`;
-  return `<employee_role>\n${role}\n</employee_role>\n\n${request.prompt}\n`;
+  return `${render(prompts.roleWrapper, { role })}\n\n${request.prompt}\n`;
 }

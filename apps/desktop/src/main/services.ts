@@ -8,6 +8,7 @@ import {
   FileStore,
   MemoryStore,
   MessageLog,
+  loadPromptPack,
   RoomService,
   RoomStore,
   createAdapterForEmployee,
@@ -30,6 +31,8 @@ export interface AppServices {
   bootstrapDir: string;
   /** 实际使用的数据根目录，可在设置里改到别处。 */
   dataDir: string;
+  /** 可编辑的提示词文件路径（首次启动会自动写出默认值）。 */
+  promptsPath: string;
   store: FileStore;
   config: ConfigStore;
   employees: EmployeeStore;
@@ -63,6 +66,8 @@ export async function createServices(): Promise<AppServices> {
   const memory = new MemoryStore(store, dataDir);
   const cursors = new CursorStore(store, join(dataDir, "cursors.json"));
   await cursors.load();
+  const promptsPath = join(dataDir, "prompts.json");
+  const { pack: prompts } = await loadPromptPack(store, promptsPath);
   const service = new RoomService({
     config,
     employees,
@@ -70,6 +75,7 @@ export async function createServices(): Promise<AppServices> {
     messages,
     memory,
     cursors,
+    prompts,
     skillsFor: async (employee: Employee) => {
       const catalog = await loadSkillCatalog(dataDir, config.get().skills);
       return catalog.filter((skill) => employee.skills.includes(skill.id));
@@ -81,6 +87,7 @@ export async function createServices(): Promise<AppServices> {
   return {
     bootstrapDir,
     dataDir,
+    promptsPath,
     store,
     config,
     employees,

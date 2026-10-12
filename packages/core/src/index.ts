@@ -27,3 +27,4 @@ export * from "./room/cursorStore";
 export * from "./room/roomService";
 export * from "./memory/memoryStore";
 export * from "./skills/skillCatalog";
+export * from "./prompts/promptPack";

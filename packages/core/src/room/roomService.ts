@@ -6,6 +6,7 @@ import type { Employee, Mention, Message, Room } from "../domain/schema";
 import type { EmployeeStore } from "../employee/employeeStore";
 import { EventBus } from "../events/eventBus";
 import type { MemoryStore } from "../memory/memoryStore";
+import { defaultPromptPack, render, type PromptPack } from "../prompts/promptPack";
 import type { SkillInfo } from "../skills/skillCatalog";
 import { parseMentions } from "./mentions";
 import type { CursorStore } from "./cursorStore";
@@ -35,6 +36,8 @@ export interface RoomServiceDeps {
   createAdapter: (employee: Employee) => Promise<AdapterCreation>;
   cursors: CursorStore;
   memory?: MemoryStore;
+  /** 面向模型的文案；不传则用内置默认值。 */
+  prompts?: PromptPack;
   /** 该员工启用的技能，用于在提示词里告诉它有哪些能力可用。 */
   skillsFor?: (employee: Employee) => Promise<SkillInfo[]>;
   events?: EventBus<RoomServiceEvents>;
@@ -86,6 +89,7 @@ function extractBullets(text: string): string[] {
 export class RoomService {
   private readonly events: EventBus<RoomServiceEvents>;
   private readonly now: () => Date;
+  private readonly prompts: PromptPack;
   private readonly queue: RunTask[] = [];
   private readonly running = new Set<Promise<void>>();
   /** 正在干活的员工；同一位员工同时只允许一个 run。 */
@@ -99,6 +103,7 @@ export class RoomService {
   constructor(private readonly deps: RoomServiceDeps) {
     this.events = deps.events ?? new EventBus<RoomServiceEvents>();
     this.now = deps.now ?? (() => new Date());
+    this.prompts = deps.prompts ?? defaultPromptPack();
   }
 
   getEvents(): EventBus<RoomServiceEvents> {
@@ -465,16 +470,16 @@ export class RoomService {
 
     return [
       cursor === null
-        ? "你第一次在这个房间干活，下面是最近的对话供你了解背景："
-        : "下面是这个房间里你上次干活之后的新消息：",
+        ? this.prompts.contextFirstRun
+        : this.prompts.contextDelta,
       "<context>",
-      contextLines === "" ? "（没有新消息）" : contextLines,
+      contextLines === "" ? this.prompts.contextEmpty : contextLines,
       "</context>",
       ...(room === undefined ? [] : ["", await this.teamBlock(room, employee)]),
       ...(memory === "" ? [] : ["", memory]),
       ...(skills === "" ? [] : ["", skills]),
       "",
-      `现在轮到你，你是「${employee.displayName}」。请直接回复下面这条消息：`,
+      render(this.prompts.taskHeader, { employee: employee.displayName }),
       `<message from="${from}">`,
       task.trigger.body,
       "</message>",
@@ -490,11 +495,7 @@ export class RoomService {
    */
   private async teamBlock(room: Room, employee: Employee): Promise<string> {
     if (room.kind === "direct") {
-      return [
-        "<team>",
-        "这是一个单聊房间，房间里只有你和用户，没有其他同事，请不要 @ 任何人。",
-        "</team>",
-      ].join("\n");
+      return ["<team>", this.prompts.teamDirect, "</team>"].join("\n");
     }
 
     const colleagues = room.memberIds
@@ -504,18 +505,18 @@ export class RoomService {
 
     return [
       "<team>",
-      `这是一个群聊房间。除你之外还有 ${colleagues.length} 位同事：${
-        colleagues.length === 0
-          ? "（没有）"
-          : colleagues.map((item) => `${item.displayName}（${item.framework}）`).join("、")
-      }`,
-      "协作方式：在你的回复里写「@同事名字」，这条消息就会被投递给那位同事，它会真的开始干活并在这里回复你。",
-      "写「@all」或「@全体」会把消息发给房间里除你之外的所有人。",
-      "注意：每次 @ 都会真的占用一次运行额度，请只在确实需要交接或征求意见时使用；也不要 @ 自己。",
+      render(this.prompts.teamGroupHeader, {
+        count: colleagues.length,
+        list:
+          colleagues.length === 0
+            ? this.prompts.teamNoColleagues
+            : colleagues.map((item) => `${item.displayName}（${item.framework}）`).join("、"),
+      }),
+      this.prompts.teamMentionGuide,
+      this.prompts.teamBroadcastGuide,
+      this.prompts.teamBudgetNote,
       ...(this.mentionPolicy(room, "employee") === "confirm"
-        ? [
-            "本房间设置为「员工之间需要人工确认」：你 @ 同事之后要等用户点允许，对方才会开始，因此不要假设它已经做完了。",
-          ]
+        ? [this.prompts.teamConfirmNote]
         : []),
       "</team>",
     ].join("\n");
@@ -535,7 +536,7 @@ export class RoomService {
 
     return [
       "<long_term_memory>",
-      "（你的长期记忆：以前归纳下来的约定与结论，不是本次对话内容）",
+      this.prompts.memoryHeader,
       ...facts.map((fact) => `- ${oneLine(fact.text)}`),
       "</long_term_memory>",
     ].join("\n");
@@ -548,7 +549,7 @@ export class RoomService {
 
     return [
       "<available_skills>",
-      "以下技能已启用。任务匹配时，先读取对应的 SKILL.md 再动手：",
+      this.prompts.skillsHeader,
       ...skills.map(
         (skill) =>
           `- ${skill.id}${skill.description ? `：${skill.description}` : ""}（${skill.entryPath}）`,
@@ -610,10 +611,7 @@ export class RoomService {
 
     const existing = await memory.listFacts(employee.id);
     const prompt = [
-      "下面是你最近的工作往来，以及你已经记住的内容。",
-      "请提炼出值得**长期记住**的新信息：约定、决定、用户偏好、重要事实、未完成事项。",
-      "不要记录寒暄、一次性细节，也不要重复已经记住的内容。",
-      "每行输出一条，以「- 」开头；如果没有任何值得记住的，只输出「无」。",
+      this.prompts.distillInstruction,
       "<recent_work>",
       ...pending.map((entry) => `- ${oneLine(entry.text)}`),
       "</recent_work>",
@@ -625,7 +623,7 @@ export class RoomService {
     try {
       const result = await created.adapter.run({
         prompt,
-        systemPrompt: "你是记忆整理器，只做归纳，不执行任何任务。",
+        systemPrompt: this.prompts.distillSystem,
         cwd: employee.workspaceDir,
         permissions: employee.permissions,
         timeoutMs: 120000,
@@ -658,18 +656,18 @@ export class RoomService {
     const keep = all.slice(all.length - keepCount);
     const absorbed = all.slice(0, all.length - keep.length);
 
-    let digestText = `（更早的 ${absorbed.length} 条记忆已折叠）`;
+    let digestText = render(this.prompts.digestFallback, { count: absorbed.length });
     const created = await this.deps.createAdapter(employee);
     if (created.ok) {
       try {
         const result = await created.adapter.run({
           prompt: [
-            "把下面这些长期记忆条目合并成一段不超过 200 字的摘要，保留事实、约定与未完成事项。只输出摘要正文。",
+            this.prompts.digestInstruction,
             "<memory>",
             ...absorbed.map((fact) => `- ${oneLine(fact.text)}`),
             "</memory>",
           ].join("\n"),
-          systemPrompt: "你是记忆整理器，只做归纳。",
+          systemPrompt: this.prompts.digestSystem,
           cwd: employee.workspaceDir,
           permissions: employee.permissions,
           timeoutMs: 120000,
