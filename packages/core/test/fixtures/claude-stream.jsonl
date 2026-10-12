@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","cwd":"C:\\work","session_id":"1fd3cf9a-ede3-4b27-b21e-41f3ec79a648","tools":["Bash","Read","Edit"]}
+{"type":"assistant","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet","content":[{"type":"thinking","thinking":"","signature":"msg_1"}],"usage":{"input_tokens":19887,"output_tokens":0}},"session_id":"1fd3cf9a-ede3-4b27-b21e-41f3ec79a648"}
+{"type":"assistant","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet","content":[{"type":"text","text":"Hi"}],"usage":{"input_tokens":19887,"output_tokens":0}},"session_id":"1fd3cf9a-ede3-4b27-b21e-41f3ec79a648"}
+{"type":"result","subtype":"success","is_error":false,"result":"Hi","session_id":"1fd3cf9a-ede3-4b27-b21e-41f3ec79a648","total_cost_usd":0.09948499999999999,"usage":{"input_tokens":19887,"output_tokens":2}}

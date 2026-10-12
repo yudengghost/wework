@@ -16,3 +16,8 @@ export * from "./launcher/resolveLauncher";
 export * from "./process/lineSplitter";
 export * from "./process/killProcessTree";
 export * from "./process/processRunner";
+export * from "./adapters/events";
+export * from "./adapters/buildArgs";
+export * from "./adapters/parseCodexLine";
+export * from "./adapters/parseClaudeLine";
+export * from "./adapters/cliAgentAdapter";

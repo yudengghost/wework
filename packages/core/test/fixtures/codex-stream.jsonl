@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"01a12f64-0406-7050-ada9-2a2e3ff67f87"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I'll list the files in the current directory."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"pwsh -Command 'Get-ChildItem'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"pwsh -Command 'Get-ChildItem'","aggregated_output":"readme.md\r\nsrc\r\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Files: readme.md and src."}}
+{"type":"turn.completed","usage":{"input_tokens":76273,"cached_input_tokens":46592,"cache_write_input_tokens":0,"output_tokens":174,"reasoning_output_tokens":11}}
