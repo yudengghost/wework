@@ -2,6 +2,7 @@ import type { Employee, Message, Room } from "@buddy/core";
 import { useState } from "react";
 
 import { api, type ApprovalEvent } from "./api";
+import { AlertIcon, Avatar, PlusIcon, SendIcon, StopIcon, TrashIcon } from "./ui";
 
 interface RoomViewProps {
   room: Room;
@@ -65,15 +66,28 @@ export function RoomView(props: RoomViewProps) {
     <>
       <header className="room-header">
         <div className="grow">
-          <strong>{room.name}</strong>
-          <span className="sub" style={{ color: "var(--muted)", marginLeft: 10 }}>
-            {isDirect ? nameOf(directPartner?.id ?? "") : `${members.length} 名成员`}
-          </span>
+          <div className="room-title">{room.name}</div>
+          <div className="room-sub">
+            {isDirect
+              ? `${nameOf(directPartner?.id ?? "")} · ${directPartner?.framework ?? ""}`
+              : `群聊 · ${members.length} 名成员`}
+          </div>
         </div>
-        {streamingIds.length > 0 && <span className="tag ok">有员工正在工作</span>}
+        {streamingIds.length > 0 && (
+          <span className="live-badge">
+            <span className="pulse" />
+            正在工作
+          </span>
+        )}
         {!isDirect && (
           <div className="member-add">
-            <button onClick={() => setAddOpen((open) => !open)}>添加成员</button>
+            <button
+              className="icon-btn"
+              title="添加成员"
+              onClick={() => setAddOpen((open) => !open)}
+            >
+              <PlusIcon size={17} />
+            </button>
             {addOpen && (
               <div className="member-pop">
                 {nonMembers.length === 0 ? (
@@ -98,8 +112,12 @@ export function RoomView(props: RoomViewProps) {
             )}
           </div>
         )}
-        <button className="danger" onClick={props.onDeleteRoom}>
-          {isDirect ? "删除会话" : "解散群聊"}
+        <button
+          className="icon-btn danger"
+          title={isDirect ? "删除会话" : "解散群聊"}
+          onClick={props.onDeleteRoom}
+        >
+          <TrashIcon size={17} />
         </button>
       </header>
 
@@ -110,6 +128,7 @@ export function RoomView(props: RoomViewProps) {
           )}
           {members.map((employee) => (
             <span key={employee.id} className="chip" title={employee.workspaceDir}>
+              <Avatar name={employee.displayName} seed={employee.id} small />
               {employee.displayName}
               <button
                 className="chip-x"
@@ -135,32 +154,49 @@ export function RoomView(props: RoomViewProps) {
           const mine = message.sender.kind === "human";
           const who =
             message.sender.kind === "human" ? "你" : nameOf(message.sender.employeeId);
+          const seed =
+            message.sender.kind === "human" ? "human" : message.sender.employeeId;
+          const working =
+            message.sender.kind === "employee" && running[message.sender.employeeId];
           return (
-            <div key={message.id} className={`msg${mine ? " mine" : ""}`}>
-              <div className="who">
-                {who}
-                {running[message.sender.kind === "employee" ? message.sender.employeeId : ""]
-                  ? " · 工作中"
-                  : ""}
+            <div key={message.id} className={`msg-row${mine ? " mine" : ""}`}>
+              <Avatar name={mine ? "你" : who} seed={seed} small />
+              <div className="msg-col">
+                <div className="msg-head">
+                  <span className="who">{who}</span>
+                  <span>{message.createdAt.slice(11, 16)}</span>
+                  {working && <span className="tag ok">工作中</span>}
+                </div>
+                <div className="bubble">{message.body}</div>
               </div>
-              <div className="body">{message.body}</div>
             </div>
           );
         })}
 
         {streamingIds.map((employeeId) => (
-          <div key={employeeId} className="msg stream">
-            <div className="who">{nameOf(employeeId)} · 正在输出</div>
-            <div className="body">{streams[employeeId] || "正在思考…"}</div>
+          <div key={employeeId} className="msg-row stream">
+            <Avatar name={nameOf(employeeId)} seed={employeeId} small />
+            <div className="msg-col">
+              <div className="msg-head">
+                <span className="who">{nameOf(employeeId)}</span>
+                <span className="stream-dots">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              </div>
+              <div className="bubble">{streams[employeeId] || "正在思考…"}</div>
+            </div>
           </div>
         ))}
       </div>
 
       {approvals.map((approval) => (
         <div key={approval.approvalId} className="approval">
+          <AlertIcon size={17} />
           <div className="grow">
             <strong>{nameOf(approval.targetId)}</strong> 被 @ 了，需要你确认才继续
-            <div style={{ color: "var(--muted)", fontSize: 12 }}>{approval.summary}</div>
+            <div className="why">{approval.summary}</div>
           </div>
           <button className="primary" onClick={() => props.onResolveApproval(approval.approvalId, true)}>
             允许
@@ -180,6 +216,7 @@ export function RoomView(props: RoomViewProps) {
                   insertMention(employee.displayName);
                 }}
               >
+                <Avatar name={employee.displayName} seed={employee.id} small />
                 @{employee.displayName}
               </div>
             ))}
@@ -189,6 +226,9 @@ export function RoomView(props: RoomViewProps) {
                 setDraft((prev) => prev.replace(/@([^\s@]*)$/, "@all "));
               }}
             >
+              <span className="avatar sm" style={{ background: "var(--surface-3)" }}>
+                全
+              </span>
               @all 全体成员
             </div>
           </div>
@@ -216,15 +256,22 @@ export function RoomView(props: RoomViewProps) {
               }}
             />
           </div>
-          <button className="primary" onClick={() => void submit()} disabled={draft.trim() === ""}>
-            发送
+          <button
+            className="primary send-btn"
+            title="发送（Enter）"
+            onClick={() => void submit()}
+            disabled={draft.trim() === ""}
+          >
+            <SendIcon />
           </button>
           <button
+            className="icon-btn"
+            title="停止全部运行"
             onClick={() => {
               void api.stopAll();
             }}
           >
-            停止
+            <StopIcon size={17} />
           </button>
         </div>
         {error && <div className="error">{error}</div>}

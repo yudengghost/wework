@@ -1,4 +1,4 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { BrowserWindow, app } from "electron";
@@ -138,12 +138,58 @@ void app
     await createWindow();
 
     if (process.env.BUDDY_SMOKE === "1") {
-      setTimeout(() => {
-        trace("smoke: 超时兜底退出");
-        app.quit();
-      }, 20000);
-      await runSmoke();
-      setTimeout(() => app.quit(), 300);
+      const shotPath = process.env.BUDDY_SMOKE_SHOT;
+      if (shotPath) {
+        // 只截图、不跑剧本：用来肉眼检查真实渲染结果。
+        setTimeout(() => {
+          void (async () => {
+            try {
+              // 先量一次真实布局：如果这些数字是对的，图上的接缝就只可能是截图产物。
+              const metrics = await window?.webContents.executeJavaScript(
+                `(() => {
+                  const q = (sel) => {
+                    const el = document.querySelector(sel);
+                    if (!el) return null;
+                    const r = el.getBoundingClientRect();
+                    return { w: Math.round(r.width), h: Math.round(r.height), x: Math.round(r.x) };
+                  };
+                  return JSON.stringify({
+                    viewport: document.documentElement.clientWidth,
+                    bodyScrollW: document.body.scrollWidth,
+                    bodyScrollH: document.body.scrollHeight,
+                    app: q(".app"),
+                    sidebar: q(".sidebar"),
+                    list: q(".list"),
+                    main: q(".main"),
+                    messages: q(".messages"),
+                    composer: q(".composer"),
+                    messagesScrollH: document.querySelector(".messages")?.scrollHeight ?? 0,
+                  });
+                })()`,
+              );
+              trace(`layout: ${String(metrics)}`);
+              window?.webContents.invalidate();
+              await new Promise((resolve) => setTimeout(resolve, 700));
+              await window?.webContents.capturePage();
+              await new Promise((resolve) => setTimeout(resolve, 300));
+              const image = await window?.webContents.capturePage();
+              if (image) writeFileSync(shotPath, image.toPNG());
+              trace(`screenshot: ${shotPath}`);
+            } catch (error) {
+              trace(`screenshot failed: ${String(error)}`);
+            } finally {
+              app.quit();
+            }
+          })();
+        }, 2600);
+      } else {
+        setTimeout(() => {
+          trace("smoke: 超时兜底退出");
+          app.quit();
+        }, 20000);
+        await runSmoke();
+        setTimeout(() => app.quit(), 300);
+      }
     }
 
     app.on("activate", () => {

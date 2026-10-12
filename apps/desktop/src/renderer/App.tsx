@@ -9,6 +9,16 @@ import {
   SettingsPanel,
 } from "./Panels";
 import { RoomView } from "./RoomView";
+import {
+  AlertIcon,
+  Avatar,
+  EmptyState,
+  GearIcon,
+  PlusIcon,
+  SparkIcon,
+  StopIcon,
+  UsersIcon,
+} from "./ui";
 
 type Panel = "none" | "employees" | "settings";
 
@@ -140,12 +150,13 @@ export function App() {
   const groupRooms = boot?.rooms.filter((room) => room.kind !== "direct") ?? [];
   const directRoomOf = (employeeId: string) =>
     directRooms.find((room) => room.memberIds[0] === employeeId);
+  const streamingIds = Object.keys(streams);
 
   if (!boot) {
     return (
       <div className="app">
         <div className="main">
-          <div className="empty">{error ?? "正在加载…"}</div>
+          <EmptyState icon={<SparkIcon size={22} />} title={error ?? "正在加载…"} />
         </div>
       </div>
     );
@@ -154,56 +165,102 @@ export function App() {
   return (
     <div className="app">
       <aside className="sidebar">
-        <h1>Buddy</h1>
-        <p className="hint">
-          {boot.employees.length} 名员工 · {groupRooms.length} 个群聊 · {directRooms.length} 个单聊
-        </p>
-        <div className="list">
-          <div className="section-title">群聊</div>
-          {groupRooms.map((room) => (
-            <div
-              key={room.id}
-              className={`list-item${room.id === selectedRoomId ? " active" : ""}`}
-              onClick={() => setSelectedRoomId(room.id)}
-            >
-              <div>{room.name}</div>
-              <div className="sub">{room.memberIds.length} 名成员</div>
+        <div className="app-header">
+          <div className="mark">
+            <SparkIcon size={16} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <h1>Buddy</h1>
+            <div className="meta">
+              {boot.employees.length} 名员工
+              {streamingIds.length > 0 ? " · 有员工在工作中" : ""}
             </div>
-          ))}
-          {groupRooms.length === 0 && <p className="hint">还没有群聊，点下面「新建群聊」。</p>}
-
-          <div className="section-title">单聊</div>
-          {boot.employees.map((employee) => {
-            const room = directRoomOf(employee.id);
-            return (
+          </div>
+        </div>
+        <div className="list">
+          <section className="nav-section">
+            <div className="nav-section-head">
+              群聊
+              <span className="count-pill">{groupRooms.length}</span>
+            </div>
+            {groupRooms.map((room) => (
               <div
-                key={employee.id}
-                className={`list-item${room && room.id === selectedRoomId ? " active" : ""}`}
-                onClick={() => openDirect(employee.id)}
+                key={room.id}
+                className={`list-item${room.id === selectedRoomId ? " active" : ""}`}
+                onClick={() => setSelectedRoomId(room.id)}
               >
-                <div>{employee.displayName}</div>
-                <div className="sub">
-                  {employee.framework}
-                  {room ? " · 有历史" : ""}
+                <Avatar name={room.name} seed={room.id} small />
+                <div className="row-main">
+                  <div className="row-title">{room.name}</div>
+                  <div className="row-sub">{room.memberIds.length} 名成员</div>
                 </div>
               </div>
-            );
-          })}
-          {boot.employees.length === 0 && (
-            <p className="hint">先去「员工管理」创建一名员工。</p>
-          )}
+            ))}
+            {groupRooms.length === 0 && (
+              <div className="row-sub" style={{ padding: "4px 9px" }}>
+                还没有群聊，点左下角 + 新建
+              </div>
+            )}
+          </section>
+
+          <section className="nav-section">
+            <div className="nav-section-head">
+              单聊
+              <span className="count-pill">{boot.employees.length}</span>
+            </div>
+            {boot.employees.map((employee) => {
+              const room = directRoomOf(employee.id);
+              return (
+                <div
+                  key={employee.id}
+                  className={`list-item${room && room.id === selectedRoomId ? " active" : ""}`}
+                  onClick={() => openDirect(employee.id)}
+                >
+                  <Avatar name={employee.displayName} seed={employee.id} small />
+                  <div className="row-main">
+                    <div className="row-title">{employee.displayName}</div>
+                    <div className="row-sub">
+                      {employee.framework}
+                      {room ? " · 有历史" : ""}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {boot.employees.length === 0 && (
+              <div className="row-sub" style={{ padding: "4px 9px" }}>
+                先去「员工管理」创建一名员工
+              </div>
+            )}
+          </section>
         </div>
         <div className="sidebar-footer">
-          <button onClick={createRoom}>新建群聊</button>
-          <button onClick={() => setPanel("employees")}>员工管理</button>
-          <button onClick={() => setPanel("settings")}>设置</button>
           <button
-            className="danger"
+            className="icon-btn accent"
+            title="新建群聊"
+            onClick={createRoom}
+          >
+            <PlusIcon />
+          </button>
+          <button
+            className="icon-btn"
+            title="员工管理"
+            onClick={() => setPanel("employees")}
+          >
+            <UsersIcon />
+          </button>
+          <button className="icon-btn" title="设置" onClick={() => setPanel("settings")}>
+            <GearIcon />
+          </button>
+          <div className="spacer" />
+          <button
+            className="icon-btn danger"
+            title="停止全部运行"
             onClick={() => {
               void api.stopAll().then((result) => pushNotice(`已停止 ${result.cancelled} 个运行`));
             }}
           >
-            停止全部
+            <StopIcon />
           </button>
         </div>
       </aside>
@@ -234,11 +291,24 @@ export function App() {
             }
           />
         ) : (
-          <div className="empty">
-            {boot.employees.length === 0
-              ? "先在「员工管理」里创建一名员工，再新建房间开始对话。"
-              : "左侧新建一个房间开始对话。"}
-          </div>
+          <EmptyState
+            icon={<SparkIcon size={22} />}
+            title={boot.employees.length === 0 ? "先创建一名员工" : "选一个会话开始"}
+          >
+            {boot.employees.length === 0 ? (
+              <>
+                员工是真正会干活的 agent——它能读写文件、执行命令。
+                <br />
+                左下角 <UsersIcon size={13} /> 进入员工管理，创建一名即可。
+              </>
+            ) : (
+              <>
+                点左侧「单聊」里的员工直接私聊，不需要 @；
+                <br />
+                或点左下角 <PlusIcon size={13} /> 建一个群聊，把多位员工拉进来协作。
+              </>
+            )}
+          </EmptyState>
         )}
         {error && <div className="notice">{error}</div>}
       </main>
@@ -278,6 +348,7 @@ export function App() {
         <div className="toasts">
           {notices.map((notice, index) => (
             <div key={`${index}-${notice}`} className="toast">
+              <AlertIcon size={15} />
               {notice}
             </div>
           ))}

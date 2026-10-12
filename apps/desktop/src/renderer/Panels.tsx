@@ -2,6 +2,7 @@ import type { BuddyConfig, DeepPartial, Framework, PermissionMode } from "@buddy
 import { useEffect, useState } from "react";
 
 import { api, type Bootstrap, type CreateEmployeePayload, type MemorySnapshot } from "./api";
+import { Avatar, Switch } from "./ui";
 
 export function ConfirmDialog({
   title,
@@ -92,6 +93,7 @@ export function CreateRoomDialog({ employees, onCancel, onSubmit }: CreateRoomDi
                       checked={selected.includes(employee.id)}
                       onChange={() => toggle(employee.id)}
                     />
+                    <Avatar name={employee.displayName} seed={employee.id} small />
                     <span>
                       <strong>{employee.displayName}</strong>
                       <span className="tag" style={{ marginLeft: 6 }}>
@@ -447,7 +449,7 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
               </div>
               <button onClick={() => void probe()}>重新探测</button>
             </div>
-            <div className="sub" style={{ color: "var(--muted)", fontSize: 12, margin: "6px 0" }}>
+            <div className="sub" style={{ margin: "6px 0" }}>
               {frameworks[framework]?.detail}
             </div>
             <div className="field" style={{ marginBottom: 0 }}>
@@ -469,26 +471,19 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
                 }
               />
             </div>
-            <label style={{ fontSize: 12, color: "var(--muted)" }}>
-              <input
-                type="checkbox"
-                style={{ width: "auto", marginRight: 6 }}
-                checked={config.launchers[framework].detectWsl}
-                onChange={(event) =>
-                  setConfig({
-                    ...config,
-                    launchers: {
-                      ...config.launchers,
-                      [framework]: {
-                        ...config.launchers[framework],
-                        detectWsl: event.target.checked,
-                      },
-                    },
-                  })
-                }
-              />
-              在 WSL 里也探测
-            </label>
+            <Switch
+              label="在 WSL 里也探测"
+              checked={config.launchers[framework].detectWsl}
+              onChange={(value) =>
+                setConfig({
+                  ...config,
+                  launchers: {
+                    ...config.launchers,
+                    [framework]: { ...config.launchers[framework], detectWsl: value },
+                  },
+                })
+              }
+            />
           </div>
         ))}
 
@@ -578,32 +573,23 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
           <summary>员工记忆（归纳、阈值、注入条数）</summary>
           <div className="group-body">
         <div className="card">
-          <label style={{ fontSize: 12, color: "var(--muted)" }}>
-            <input
-              type="checkbox"
-              style={{ width: "auto", marginRight: 6 }}
-              checked={config.memory.enabled}
-              onChange={(event) =>
-                setConfig({ ...config, memory: { ...config.memory, enabled: event.target.checked } })
-              }
-            />
-            启用员工记忆（默认开启）
-          </label>
-          <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginTop: 6 }}>
-            <input
-              type="checkbox"
-              style={{ width: "auto", marginRight: 6 }}
-              checked={config.memory.crossRoomRecall}
-              onChange={(event) =>
-                setConfig({
-                  ...config,
-                  memory: { ...config.memory, crossRoomRecall: event.target.checked },
-                })
-              }
-            />
-            单聊与群聊的记忆互相可见（关掉则只在同一房间内回忆）
-          </label>
-          <div className="grid2" style={{ marginTop: 10 }}>
+          <Switch
+            label="启用员工记忆"
+            hint="每次往来先进暂存区，归纳后才成为长期记忆"
+            checked={config.memory.enabled}
+            onChange={(value) =>
+              setConfig({ ...config, memory: { ...config.memory, enabled: value } })
+            }
+          />
+          <Switch
+            label="单聊与群聊的记忆互相可见"
+            hint="关掉则只在同一房间内回忆"
+            checked={config.memory.crossRoomRecall}
+            onChange={(value) =>
+              setConfig({ ...config, memory: { ...config.memory, crossRoomRecall: value } })
+            }
+          />
+          <div className="grid2" style={{ marginTop: 12 }}>
             {(
               [
                 ["distillAfterPending", "累计多少次往来后归纳"],
@@ -634,20 +620,17 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
           <summary>技能目录</summary>
           <div className="group-body">
         <div className="card">
-          <label style={{ fontSize: 12, color: "var(--muted)" }}>
-            <input
-              type="checkbox"
-              style={{ width: "auto", marginRight: 6 }}
-              checked={config.skills.includeFrameworkSkills}
-              onChange={(event) =>
-                setConfig({
-                  ...config,
-                  skills: { ...config.skills, includeFrameworkSkills: event.target.checked },
-                })
-              }
-            />
-            同时扫描 Codex / Claude Code 等框架自带的技能目录
-          </label>
+          <Switch
+            label="复用框架自带的技能"
+            hint="同时扫描 ~/.codex/skills、~/.agents/skills、~/.claude/skills"
+            checked={config.skills.includeFrameworkSkills}
+            onChange={(value) =>
+              setConfig({
+                ...config,
+                skills: { ...config.skills, includeFrameworkSkills: value },
+              })
+            }
+          />
           <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
             <label>额外技能根目录（一行一个）</label>
             <textarea
