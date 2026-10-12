@@ -88,6 +88,8 @@ export const api = {
   updateRoom: (id: string, patch: { name?: string; memberIds?: string[] }) =>
     window.buddy.invoke<Room>("room:update", { id, patch }),
   removeRoom: (id: string) => window.buddy.invoke<boolean>("room:remove", { id }),
+  setRoomMember: (roomId: string, employeeId: string, member: boolean) =>
+    window.buddy.invoke<Room>("room:member", { roomId, employeeId, member }),
   messages: (roomId: string) => window.buddy.invoke<Message[]>("room:messages", { roomId }),
   send: (roomId: string, body: string) =>
     window.buddy.invoke<Message>("room:send", { roomId, body }),

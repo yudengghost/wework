@@ -147,6 +147,59 @@ textarea {
   flex: 1;
 }
 
+/* 成员管理：头部放操作，成员用可移除的 chip 单列一行 */
+.member-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #12151b;
+}
+
+.member-add {
+  position: relative;
+}
+
+.member-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 180px;
+  max-height: 240px;
+  overflow: auto;
+  z-index: 30;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.member-pop div {
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.member-pop div:hover {
+  background: #23304a;
+}
+
+.chip-x {
+  background: transparent;
+  border: none;
+  padding: 0 0 0 2px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chip-x:hover {
+  color: var(--danger);
+  border: none;
+}
+
 .messages {
   flex: 1;
   overflow: auto;

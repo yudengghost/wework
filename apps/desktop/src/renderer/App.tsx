@@ -2,7 +2,12 @@ import type { Employee, Message } from "@buddy/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent, type Bootstrap } from "./api";
-import { CreateRoomDialog, EmployeesPanel, SettingsPanel } from "./Panels";
+import {
+  ConfirmDialog,
+  CreateRoomDialog,
+  EmployeesPanel,
+  SettingsPanel,
+} from "./Panels";
 import { RoomView } from "./RoomView";
 
 type Panel = "none" | "employees" | "settings";
@@ -18,6 +23,7 @@ export function App() {
   const [approvals, setApprovals] = useState<ApprovalEvent[]>([]);
   const [panel, setPanel] = useState<Panel>("none");
   const [createRoomOpen, setCreateRoomOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
 
   const roomRef = useRef<string | null>(null);
   const employeesRef = useRef<Employee[]>([]);
@@ -215,13 +221,17 @@ export function App() {
               await api.send(selectedRoom.id, body);
             }}
             onResolveApproval={(id, approved) => void resolveApproval(id, approved)}
-            onToggleMember={async (employeeId) => {
-              const memberIds = selectedRoom.memberIds.includes(employeeId)
-                ? selectedRoom.memberIds.filter((id) => id !== employeeId)
-                : [...selectedRoom.memberIds, employeeId];
-              await api.updateRoom(selectedRoom.id, { memberIds });
+            onAddMember={async (employeeId) => {
+              await api.setRoomMember(selectedRoom.id, employeeId, true);
               await reload();
             }}
+            onRemoveMember={async (employeeId) => {
+              await api.setRoomMember(selectedRoom.id, employeeId, false);
+              await reload();
+            }}
+            onDeleteRoom={() =>
+              setConfirmDelete({ id: selectedRoom.id, name: selectedRoom.name })
+            }
           />
         ) : (
           <div className="empty">
@@ -272,6 +282,27 @@ export function App() {
             </div>
           ))}
         </div>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`确定要解散「${confirmDelete.name}」？`}
+          body="房间与它的消息记录会被删除。员工本身、它们的工作目录与记忆都不受影响。"
+          confirmLabel="解散"
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => {
+            const target = confirmDelete;
+            setConfirmDelete(null);
+            void api
+              .removeRoom(target.id)
+              .then(async () => {
+                if (selectedRoomId === target.id) setSelectedRoomId(null);
+                await reload();
+                pushNotice(`已解散「${target.name}」`);
+              })
+              .catch((cause: unknown) => setError(String(cause)));
+          }}
+        />
       )}
     </div>
   );

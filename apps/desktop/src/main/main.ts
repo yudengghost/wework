@@ -83,12 +83,34 @@ const smokeScript = `(async () => {
     kind: "group",
   });
   out.groupKind = group.kind;
+  out.groupMembersAfterCreate = group.memberIds.length;
+
+  const second = await window.buddy.invoke("employee:create", {
+    displayName: "联调员工B",
+    framework: "codex",
+    permissionMode: "read-only",
+  });
+  const added = await window.buddy.invoke("room:member", {
+    roomId: group.id,
+    employeeId: second.id,
+    member: true,
+  });
+  out.afterAddMember = added.memberIds.length;
+  const removed = await window.buddy.invoke("room:member", {
+    roomId: group.id,
+    employeeId: second.id,
+    member: false,
+  });
+  out.afterRemoveMember = removed.memberIds.length;
 
   const memory = await window.buddy.invoke("memory:list", { employeeId: employee.id });
   out.memoryCount = memory.count;
 
+  const beforeDelete = await window.buddy.invoke("app:bootstrap");
+  out.roomsBeforeDelete = beforeDelete.rooms.length;
+  await window.buddy.invoke("room:remove", { id: group.id });
   const after = await window.buddy.invoke("app:bootstrap");
-  out.rooms = after.rooms.length;
+  out.roomsAfterDelete = after.rooms.length;
   out.employees = after.employees.length;
   return JSON.stringify(out);
 })()`;

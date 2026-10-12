@@ -94,4 +94,14 @@ describe("MessageLog", () => {
 
     expect(await log.count("room_1")).toBe(1);
   });
+
+  it("removeRoom 删除该房间的消息且不影响其它房间", async () => {
+    await log.append(message({ id: "msg_1", roomId: "room_1" }));
+    await log.append(message({ id: "msg_2", roomId: "room_2" }));
+
+    await log.removeRoom("room_1");
+
+    expect(await log.count("room_1")).toBe(0);
+    expect(await log.count("room_2")).toBe(1);
+  });
 });

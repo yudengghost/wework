@@ -77,6 +77,11 @@ export class MessageLog {
     return (await this.readAll(roomId)).length;
   }
 
+  /** 解散房间时连同该房间的消息一起删除。 */
+  async removeRoom(roomId: string): Promise<void> {
+    await this.store.remove(join(this.dataDir, "rooms", roomId));
+  }
+
   private filePath(roomId: string): string {
     return join(this.dataDir, "rooms", roomId, "messages.jsonl");
   }

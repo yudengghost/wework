@@ -12,17 +12,21 @@ interface RoomViewProps {
   approvals: ApprovalEvent[];
   onSend: (body: string) => Promise<void>;
   onResolveApproval: (approvalId: string, approved: boolean) => void;
-  onToggleMember: (employeeId: string) => Promise<void>;
+  onAddMember: (employeeId: string) => Promise<void>;
+  onRemoveMember: (employeeId: string) => Promise<void>;
+  onDeleteRoom: () => void;
 }
 
 export function RoomView(props: RoomViewProps) {
   const { room, employees, messages, streams, running, approvals } = props;
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
   const members = employees.filter((employee) => room.memberIds.includes(employee.id));
   const isDirect = room.kind === "direct";
   const directPartner = isDirect ? members[0] : undefined;
+  const nonMembers = employees.filter((employee) => !room.memberIds.includes(employee.id));
   const nameOf = (employeeId: string): string =>
     employees.find((employee) => employee.id === employeeId)?.displayName ?? employeeId;
 
@@ -63,16 +67,61 @@ export function RoomView(props: RoomViewProps) {
         <div className="grow">
           <strong>{room.name}</strong>
           <span className="sub" style={{ color: "var(--muted)", marginLeft: 10 }}>
-            {members.length} 名成员
+            {isDirect ? nameOf(directPartner?.id ?? "") : `${members.length} 名成员`}
           </span>
         </div>
         {streamingIds.length > 0 && <span className="tag ok">有员工正在工作</span>}
-        {members.map((employee) => (
-          <span key={employee.id} className="tag" title={employee.workspaceDir}>
-            {employee.displayName}
-          </span>
-        ))}
+        {!isDirect && (
+          <div className="member-add">
+            <button onClick={() => setAddOpen((open) => !open)}>添加成员</button>
+            {addOpen && (
+              <div className="member-pop">
+                {nonMembers.length === 0 ? (
+                  <div className="sub" style={{ padding: "6px 10px" }}>
+                    所有员工都已在房间里
+                  </div>
+                ) : (
+                  nonMembers.map((employee) => (
+                    <div
+                      key={employee.id}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        setAddOpen(false);
+                        void props.onAddMember(employee.id);
+                      }}
+                    >
+                      {employee.displayName}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        <button className="danger" onClick={props.onDeleteRoom}>
+          {isDirect ? "删除会话" : "解散群聊"}
+        </button>
       </header>
+
+      {!isDirect && (
+        <div className="member-bar">
+          {members.length === 0 && (
+            <span className="sub">房间里还没有成员，点右上「添加成员」拉人进来。</span>
+          )}
+          {members.map((employee) => (
+            <span key={employee.id} className="chip" title={employee.workspaceDir}>
+              {employee.displayName}
+              <button
+                className="chip-x"
+                title="移出房间"
+                onClick={() => void props.onRemoveMember(employee.id)}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="messages">
         {messages.length === 0 && (

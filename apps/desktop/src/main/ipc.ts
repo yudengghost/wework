@@ -177,10 +177,24 @@ export function registerIpc(
     ({ id, patch }) => rooms.update(id, patch),
   );
 
+  /** 解散房间：移除房间条目并删除它的消息记录（员工的工作目录与记忆不受影响）。 */
   handle<{ id: string }, boolean>("room:remove", async ({ id }) => {
     await rooms.remove(id);
+    await messages.removeRoom(id);
     return true;
   });
+
+  handle<{ roomId: string; employeeId: string; member: boolean }, unknown>(
+    "room:member",
+    async ({ roomId, employeeId, member }) => {
+      const room = rooms.get(roomId);
+      if (!room) throw new Error(`房间不存在: ${roomId}`);
+      const memberIds = member
+        ? [...new Set([...room.memberIds, employeeId])]
+        : room.memberIds.filter((id) => id !== employeeId);
+      return rooms.update(roomId, { memberIds });
+    },
+  );
 
   handle<{ roomId: string }, Message[]>("room:messages", ({ roomId }) =>
     messages.readAll(roomId),

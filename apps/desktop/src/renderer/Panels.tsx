@@ -3,6 +3,35 @@ import { useEffect, useState } from "react";
 
 import { api, type Bootstrap, type CreateEmployeePayload, type MemorySnapshot } from "./api";
 
+export function ConfirmDialog({
+  title,
+  body,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal" style={{ width: 420 }} onClick={(event) => event.stopPropagation()}>
+        <h2>{title}</h2>
+        <p className="sub">{body}</p>
+        <div className="row">
+          <button className="danger" onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+          <button onClick={onCancel}>取消</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface CreateRoomDialogProps {
   employees: Bootstrap["employees"];
   onCancel: () => void;
