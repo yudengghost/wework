@@ -461,6 +461,7 @@ export class RoomService {
     const from = this.labelOf(task.trigger);
     const memory = await this.memoryBlock(task, employee);
     const skills = await this.skillBlock(employee);
+    const room = this.deps.rooms.get(task.roomId);
 
     return [
       cursor === null
@@ -469,6 +470,7 @@ export class RoomService {
       "<context>",
       contextLines === "" ? "（没有新消息）" : contextLines,
       "</context>",
+      ...(room === undefined ? [] : ["", await this.teamBlock(room, employee)]),
       ...(memory === "" ? [] : ["", memory]),
       ...(skills === "" ? [] : ["", skills]),
       "",
@@ -476,6 +478,46 @@ export class RoomService {
       `<message from="${from}">`,
       task.trigger.body,
       "</message>",
+    ].join("\n");
+  }
+
+  /**
+   * 告诉员工房间里还有谁、以及 @ 到底意味着什么。
+   *
+   * 没有这一段时，员工只能从上下文里「模仿」看到过的 @ 写法；它无法知道
+   * @ 会真的触发对方跑一次、@all 是广播、以及人工确认策略下对方不会自动开始。
+   * 单聊里更会说清楚「没有人可以 @」，避免对着空气喊。
+   */
+  private async teamBlock(room: Room, employee: Employee): Promise<string> {
+    if (room.kind === "direct") {
+      return [
+        "<team>",
+        "这是一个单聊房间，房间里只有你和用户，没有其他同事，请不要 @ 任何人。",
+        "</team>",
+      ].join("\n");
+    }
+
+    const colleagues = room.memberIds
+      .filter((memberId) => memberId !== employee.id)
+      .map((memberId) => this.deps.employees.get(memberId))
+      .filter((item): item is Employee => item !== undefined && item.removedAt === undefined);
+
+    return [
+      "<team>",
+      `这是一个群聊房间。除你之外还有 ${colleagues.length} 位同事：${
+        colleagues.length === 0
+          ? "（没有）"
+          : colleagues.map((item) => `${item.displayName}（${item.framework}）`).join("、")
+      }`,
+      "协作方式：在你的回复里写「@同事名字」，这条消息就会被投递给那位同事，它会真的开始干活并在这里回复你。",
+      "写「@all」或「@全体」会把消息发给房间里除你之外的所有人。",
+      "注意：每次 @ 都会真的占用一次运行额度，请只在确实需要交接或征求意见时使用；也不要 @ 自己。",
+      ...(this.mentionPolicy(room, "employee") === "confirm"
+        ? [
+            "本房间设置为「员工之间需要人工确认」：你 @ 同事之后要等用户点允许，对方才会开始，因此不要假设它已经做完了。",
+          ]
+        : []),
+      "</team>",
     ].join("\n");
   }
 

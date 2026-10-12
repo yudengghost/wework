@@ -465,6 +465,59 @@ describe("RoomService", () => {
     expect(harness.calls[0]?.prompt).toContain("C:\\skills\\imagegen\\SKILL.md");
   });
 
+  it("群聊里明确告诉员工有哪些同事、以及 @ 会真的触发对方", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始吧");
+    await harness.service.waitForIdle();
+
+    const prompt = harness.calls[0]?.prompt ?? "";
+    expect(prompt).toContain("<team>");
+    expect(prompt).toContain("这是一个群聊房间");
+    expect(prompt).toContain("小测（codex）");
+    expect(prompt).toContain("@all");
+    expect(prompt).toContain("不要 @ 自己");
+    // 默认是 auto，所以不该出现「等用户点允许」的说明
+    expect(prompt).not.toContain("等用户点允许");
+  });
+
+  it("员工互相确认策略下，提示词会说明需要人工放行", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    await harness.config.update({ policy: { employeeMentionsEmployee: "confirm" } });
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始吧");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[0]?.prompt).toContain("等用户点允许");
+  });
+
+  it("单聊里明确说没有同事可以 @", async () => {
+    const harness = await makeHarness();
+    const employee = await harness.employees.create({
+      displayName: "独苗",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "solo"),
+      stateDir: join(workDir, "state", "solo"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    const room = await harness.rooms.create({
+      name: "单聊",
+      kind: "direct",
+      memberIds: [employee.id],
+    });
+
+    await harness.service.submitHumanMessage(room.id, "随便聊聊");
+    await harness.service.waitForIdle();
+
+    const prompt = harness.calls[0]?.prompt ?? "";
+    expect(prompt).toContain("这是一个单聊房间");
+    expect(prompt).toContain("请不要 @ 任何人");
+    expect(prompt).not.toContain("写「@all」");
+  });
+
   it("同一员工的两个任务严格串行，不同员工之间仍可并行", async () => {
     const harness = await makeHarness();
     const { roomId, coder, reviewer } = await seedTeam(harness);
