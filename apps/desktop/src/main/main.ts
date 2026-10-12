@@ -168,6 +168,18 @@ void app
                 })()`,
               );
               trace(`layout: ${String(metrics)}`);
+              const clickSelector = process.env.BUDDY_SMOKE_SHOT_CLICK;
+              const shotJs = process.env.BUDDY_SMOKE_SHOT_JS;
+              if (shotJs) {
+                // 允许在截图前执行任意脚本，例如展开所有折叠区再截图。
+                await window?.webContents.executeJavaScript(shotJs);
+                await new Promise((resolve) => setTimeout(resolve, 1100));
+              } else if (clickSelector) {
+                await window?.webContents.executeJavaScript(
+                  `document.querySelector(${JSON.stringify(clickSelector)})?.click()`,
+                );
+                await new Promise((resolve) => setTimeout(resolve, 900));
+              }
               window?.webContents.invalidate();
               await new Promise((resolve) => setTimeout(resolve, 700));
               await window?.webContents.capturePage();

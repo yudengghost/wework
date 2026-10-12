@@ -37,7 +37,8 @@ export interface AppServices {
 }
 
 export async function createServices(): Promise<AppServices> {
-  const bootstrapDir = join(app.getPath("userData"), "data");
+  // 配置固定放在这里；BUDDY_CONFIG_DIR 便于测试与绿色版把整份配置挪走。
+  const bootstrapDir = process.env.BUDDY_CONFIG_DIR ?? join(app.getPath("userData"), "data");
   const store = new FileStore();
   await store.ensureDir(bootstrapDir);
 

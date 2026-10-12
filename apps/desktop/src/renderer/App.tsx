@@ -63,6 +63,21 @@ export function App() {
     void reload();
   }, [reload]);
 
+  // 主题：把配置里的偏好解析成实际主题并落到 <html data-theme>，CSS 据此换肤。
+  const themePreference = boot?.config.ui.theme ?? "dark";
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    const apply = (): void => {
+      const resolved =
+        themePreference === "system" ? (media.matches ? "light" : "dark") : themePreference;
+      document.documentElement.dataset.theme = resolved;
+    };
+    apply();
+    if (themePreference !== "system") return undefined;
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [themePreference]);
+
   useEffect(() => {
     roomRef.current = selectedRoomId;
     if (!selectedRoomId) {

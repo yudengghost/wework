@@ -38,6 +38,8 @@ export type BuiltinAgentSettings = z.infer<typeof builtinAgentSettingsSchema>;
 export const uiSettingsSchema = z.object({
   language: z.string().min(1).default("zh-CN"),
   showEmployeeThinking: z.boolean().default(false),
+  /** dark = 石墨深色；light = iOS 亮色液态玻璃；system = 跟随系统。 */
+  theme: z.enum(["dark", "light", "system"]).default("dark"),
 });
 export type UiSettings = z.infer<typeof uiSettingsSchema>;
 

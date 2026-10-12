@@ -2,7 +2,7 @@ import type { BuddyConfig, DeepPartial, Framework, PermissionMode } from "@buddy
 import { useEffect, useState } from "react";
 
 import { api, type Bootstrap, type CreateEmployeePayload, type MemorySnapshot } from "./api";
-import { Avatar, Switch } from "./ui";
+import { Avatar, Segmented, Switch } from "./ui";
 
 export function ConfirmDialog({
   title,
@@ -96,9 +96,11 @@ export function CreateRoomDialog({ employees, onCancel, onSubmit }: CreateRoomDi
                     <Avatar name={employee.displayName} seed={employee.id} small />
                     <span>
                       <strong>{employee.displayName}</strong>
-                      <span className="tag" style={{ marginLeft: 6 }}>
-                        {employee.framework}
-                      </span>
+                      {employee.framework !== "codex" && (
+                        <span className="tag" style={{ marginLeft: 6 }}>
+                          {employee.framework}
+                        </span>
+                      )}
                     </span>
                   </label>
                 ))}
@@ -231,24 +233,35 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
               <summary>工作目录、技能与记忆管理</summary>
               <div className="sub mono">{employee.workspaceDir}</div>
             {boot.skills.length > 0 && (
-              <div className="skill-inline">
-                <span className="sub">技能：</span>
-                {boot.skills.map((skill) => (
-                  <label key={skill.id} className="chip">
-                    <input
-                      type="checkbox"
-                      checked={employee.skills.includes(skill.id)}
-                      onChange={(event) => {
-                        const next = event.target.checked
-                          ? [...employee.skills, skill.id]
-                          : employee.skills.filter((id) => id !== skill.id);
-                        void api.updateEmployee(employee.id, { skills: next }).then(onChanged);
-                      }}
-                    />
-                    {skill.id}
-                    <span className="tag">{skill.source === "buddy" ? "本地" : "框架"}</span>
-                  </label>
-                ))}
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label>
+                  启用技能（{employee.skills.length} / {boot.skills.length}）
+                </label>
+                {/* 用纵向列表而不是换行的胶囊墙：几十个技能时才能扫读、才能对齐 */}
+                <div className="skill-list">
+                  {boot.skills.map((skill) => (
+                    <label key={skill.id} className="skill">
+                      <input
+                        type="checkbox"
+                        checked={employee.skills.includes(skill.id)}
+                        onChange={(event) => {
+                          const next = event.target.checked
+                            ? [...employee.skills, skill.id]
+                            : employee.skills.filter((id) => id !== skill.id);
+                          void api.updateEmployee(employee.id, { skills: next }).then(onChanged);
+                        }}
+                      />
+                      <span>
+                        <strong>{skill.id}</strong>
+                        {skill.source === "buddy" && (
+                          <span className="tag ok" style={{ marginLeft: 6 }}>
+                            本地
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
               </div>
             )}
             <div className="skill-inline">
@@ -386,9 +399,11 @@ function SkillPicker({
           />
           <span>
             <strong>{skill.id}</strong>
-            <span className="tag" style={{ marginLeft: 6 }}>
-              {skill.source === "buddy" ? "本地" : "框架"}
-            </span>
+            {skill.source === "buddy" && (
+              <span className="tag ok" style={{ marginLeft: 6 }}>
+                本地
+              </span>
+            )}
             {skill.description && <div className="sub">{skill.description}</div>}
           </span>
         </label>
@@ -410,6 +425,7 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
       builtinAgent: config.builtinAgent,
       memory: config.memory,
       skills: config.skills,
+      ui: config.ui,
     };
     const next = await api.updateSettings(patch);
     setConfig(next);
@@ -431,6 +447,24 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
       <div className="modal" onClick={(event) => event.stopPropagation()}>
         <h2>设置</h2>
         <p className="sub">数据目录：{boot.dataDir}</p>
+
+        <div className="card">
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>外观主题</label>
+            <Segmented
+              value={config.ui.theme}
+              options={[
+                { value: "dark", label: "石墨深色" },
+                { value: "light", label: "亮色玻璃" },
+                { value: "system", label: "跟随系统" },
+              ]}
+              onChange={(value) =>
+                setConfig({ ...config, ui: { ...config.ui, theme: value } })
+              }
+            />
+          </div>
+          <div className="sub">改完点底部「保存」生效。</div>
+        </div>
 
         <details className="settings-group">
           <summary>启动器（Codex / Claude Code 路径）</summary>

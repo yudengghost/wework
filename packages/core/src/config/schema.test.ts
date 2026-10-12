@@ -26,7 +26,7 @@ describe("defaultConfig", () => {
         defaultPermissionMode: "workspace-write",
       },
       builtinAgent: { baseUrl: null, apiKey: null, model: null },
-      ui: { language: "zh-CN", showEmployeeThinking: false },
+      ui: { language: "zh-CN", showEmployeeThinking: false, theme: "dark" },
       storage: { dataDir: null },
       memory: {
         enabled: true,

@@ -52,6 +52,14 @@
   box-sizing: border-box;
 }
 
+/* 原生复选框跟随主题色，避免深色/亮色下各是各的默认外观 */
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
 /*
  * 滚动隔离的根因修复：
  * 外层容器锁死视口高度并 overflow:hidden，滚动只发生在被明确指定为滚动区的
@@ -846,11 +854,19 @@ code {
 }
 
 .card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding: 13px 14px;
   border-radius: var(--radius);
   background: color-mix(in oklch, var(--bg) 45%, var(--surface-1));
   border: 1px solid var(--line);
   margin-bottom: 9px;
+}
+
+/* 卡片内的一律由 gap 决定间距：各处 margin 叠加正是「空隙不均匀」的根源 */
+.card > * {
+  margin: 0;
 }
 
 .card .row {
@@ -873,7 +889,15 @@ code {
 
 .grid2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  /* minmax(0, 1fr) 而不是 1fr：1fr 的最小值是 auto，会被下拉框里的长文案撑宽，
+     导致同一行的输入框宽度不等——这正是「新建员工」对齐问题的根因。 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px 16px;
 }
 
@@ -987,9 +1011,8 @@ code {
 }
 
 .emp-details {
-  margin-top: 10px;
   border-top: 1px solid var(--line);
-  padding-top: 9px;
+  padding-top: 8px;
 }
 
 .emp-details > summary {
@@ -1035,7 +1058,7 @@ code {
 .skill-list .skill {
   display: flex;
   gap: 9px;
-  align-items: flex-start;
+  align-items: center;
   padding: 7px 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -1051,7 +1074,6 @@ code {
   flex-wrap: wrap;
   gap: 7px;
   align-items: center;
-  margin-top: 9px;
   font-size: 12px;
 }
 
@@ -1157,6 +1179,125 @@ code {
 }
 
 /* 尊重系统的「减少动态效果」设置 */
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 11px;
+  background: color-mix(in oklch, var(--bg) 45%, var(--surface-2));
+  border: 1px solid var(--line);
+}
+
+.segmented button {
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 5px 14px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.segmented button.on {
+  background: var(--surface-3);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+}
+
+/*
+ * 亮色主题：iOS 液态玻璃
+ *
+ * 只覆盖语义 token，绝大多数组件无需改动即可换肤。
+ * 玻璃感依赖「半透明表面 + backdrop-filter + 背后有色彩」，所以亮色下额外
+ * 铺一层极淡的色彩底 —— 它是为玻璃效果服务的，不是装饰。
+ */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: oklch(0.972 0.008 250);
+  --surface-1: oklch(1 0 0 / 0.62);
+  --surface-2: oklch(1 0 0 / 0.76);
+  --surface-3: oklch(1 0 0 / 0.92);
+
+  --line: oklch(0.4 0.03 265 / 0.16);
+  --line-strong: oklch(0.4 0.03 265 / 0.28);
+
+  --text: oklch(0.27 0.014 265);
+  --text-dim: oklch(0.44 0.014 265);
+  --text-faint: oklch(0.6 0.012 265);
+
+  --accent: oklch(0.62 0.115 172);
+  --accent-ink: oklch(0.99 0 0);
+  --me: oklch(0.6 0.11 252);
+  --warn: oklch(0.72 0.13 78);
+  --danger: oklch(0.57 0.17 25);
+
+  --shadow-1: 0 1px 2px oklch(0.4 0.04 265 / 0.08), 0 8px 22px oklch(0.4 0.04 265 / 0.07);
+  --shadow-2: 0 22px 56px oklch(0.4 0.04 265 / 0.2);
+
+  /* 亮色下玻璃的薄边更像真玻璃 */
+  --glass-edge: inset 0 0 0 1px oklch(1 0 0 / 0.5);
+}
+
+:root[data-theme="light"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 46% at 10% 6%, oklch(0.86 0.1 172 / 0.55), transparent 72%),
+    radial-gradient(52% 44% at 92% 92%, oklch(0.88 0.075 252 / 0.5), transparent 72%),
+    radial-gradient(38% 34% at 74% 16%, oklch(0.92 0.06 320 / 0.32), transparent 72%);
+}
+
+:root[data-theme="light"] .sidebar,
+:root[data-theme="light"] .modal,
+:root[data-theme="light"] .toast,
+:root[data-theme="light"] .composer,
+:root[data-theme="light"] .member-bar,
+:root[data-theme="light"] .mentions,
+:root[data-theme="light"] .member-pop {
+  backdrop-filter: blur(22px) saturate(180%);
+}
+
+/* 遮罩也要跟着主题走：亮色下用浅色磨砂，否则整屏被压黑，玻璃感全失 */
+:root[data-theme="light"] .modal-backdrop {
+  background: oklch(1 0 0 / 0.5);
+  backdrop-filter: blur(7px) saturate(140%);
+}
+
+:root[data-theme="light"] .modal,
+:root[data-theme="light"] .mentions,
+:root[data-theme="light"] .member-pop {
+  box-shadow: var(--shadow-2), var(--glass-edge);
+}
+
+:root[data-theme="light"] .sidebar {
+  box-shadow: var(--glass-edge);
+}
+
+:root[data-theme="light"] .bubble {
+  box-shadow: var(--shadow-1), var(--glass-edge);
+}
+
+:root[data-theme="light"] .msg-row.mine .bubble {
+  background: color-mix(in oklch, var(--me) 18%, oklch(1 0 0 / 0.85));
+  border-color: color-mix(in oklch, var(--me) 26%, transparent);
+}
+
+:root[data-theme="light"] button.primary:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--accent) 88%, black);
+}
+
+/* 深色主题也给浮层一点玻璃质感，两个主题观感一致 */
+.sidebar,
+.modal,
+.toast,
+.composer,
+.member-bar {
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
