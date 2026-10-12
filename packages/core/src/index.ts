@@ -11,3 +11,8 @@ export * from "./config/configStore";
 export * from "./employee/employeeStore";
 export * from "./room/roomStore";
 export * from "./room/messageLog";
+export * from "./launcher/environment";
+export * from "./launcher/resolveLauncher";
+export * from "./process/lineSplitter";
+export * from "./process/killProcessTree";
+export * from "./process/processRunner";

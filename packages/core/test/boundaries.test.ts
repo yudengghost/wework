@@ -34,4 +34,19 @@ describe("包边界", () => {
     expect(offenders).toEqual([]);
     expect(files.length).toBeGreaterThan(0);
   });
+
+  it("进程与启动器层不反向依赖房间或员工层", async () => {
+    const offenders: string[] = [];
+
+    for (const layer of ["process", "launcher"]) {
+      for (const file of await collectSourceFiles(join(sourceRoot, layer))) {
+        const content = await readFile(file, "utf8");
+        const imports = [...content.matchAll(/from\s+["']([^"']+)["']/g)].map((match) => match[1] ?? "");
+        const bad = imports.filter((specifier) => /\/(room|employee)\//.test(specifier));
+        if (bad.length > 0) offenders.push(`${relative(sourceRoot, file)} -> ${bad.join(", ")}`);
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
 });
