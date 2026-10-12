@@ -1,13 +1,15 @@
 {
   "name": "@buddy/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "productName": "Buddy",
+  "author": "Buddy",
   "private": true,
   "type": "module",
   "main": "dist/main/main.cjs",
   "scripts": {
     "build": "node build.mjs",
     "start": "npm run build && electron .",
+    "package": "npm run build && node package.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
