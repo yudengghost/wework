@@ -11,6 +11,9 @@ const shared = {
   bundle: true,
   sourcemap: true,
   logLevel: "warning",
+  // esbuild 默认把非 ASCII 转义成 \uXXXX。界面与提示词里有大量中文，
+  // 直接存 UTF-8 体积更小，也让产物可以直接被检索核查。
+  charset: "utf8",
 };
 
 await build({
