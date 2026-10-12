@@ -177,6 +177,18 @@ export function App() {
     );
   }
 
+  // 员工被移除后，它的一对一房间仍留在磁盘上；这里把它们列出来，
+  // 否则会出现「房间能打开、但侧栏里找不到」的幽灵会话。
+  const knownIds = new Set([...boot.employees, ...boot.removedEmployees].map((item) => item.id));
+  const orphanRooms = directRooms
+    .filter((room) => !room.memberIds.some((id) => knownIds.has(id)))
+    .map((room) => ({
+      room,
+      label:
+        boot.removedEmployees.find((item) => item.id === room.memberIds[0])?.displayName ??
+        "已删除的员工",
+    }));
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -248,6 +260,27 @@ export function App() {
               </div>
             )}
           </section>
+          {orphanRooms.length > 0 && (
+            <section className="nav-section">
+              <div className="nav-section-head">
+                已离开
+                <span className="count-pill">{orphanRooms.length}</span>
+              </div>
+              {orphanRooms.map(({ room, label }) => (
+                <div
+                  key={room.id}
+                  className={`list-item${room.id === selectedRoomId ? " active" : ""}`}
+                  onClick={() => setSelectedRoomId(room.id)}
+                >
+                  <Avatar name={label} seed={room.memberIds[0] ?? room.id} small />
+                  <div className="row-main">
+                    <div className="row-title">{label}</div>
+                    <div className="row-sub">已离开名册 · 记录可查看</div>
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
         </div>
         <div className="sidebar-footer">
           <button
@@ -304,6 +337,9 @@ export function App() {
             onDeleteRoom={() =>
               setConfirmDelete({ id: selectedRoom.id, name: selectedRoom.name })
             }
+            readOnly={!selectedRoom.memberIds.some((id) =>
+              boot.employees.some((item) => item.id === id),
+            )}
           />
         ) : (
           <EmptyState

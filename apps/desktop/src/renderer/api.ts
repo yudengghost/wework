@@ -18,6 +18,7 @@ export interface Bootstrap {
   bootstrapDir: string;
   config: BuddyConfig;
   employees: Employee[];
+  removedEmployees: Employee[];
   rooms: Room[];
   frameworks: Record<string, FrameworkStatus>;
   skills: SkillInfo[];
@@ -25,8 +26,9 @@ export interface Bootstrap {
 
 export interface MemorySnapshot {
   count: number;
-  pending: number;
-  recent: { id: string; kind: string; text: string; createdAt: string }[];
+  pendingCount: number;
+  facts: { id: string; kind: string; text: string; createdAt: string }[];
+  pending: { id: string; text: string; createdAt: string; scope: string }[];
 }
 
 export interface RunEvent {
@@ -101,5 +103,10 @@ export const api = {
     window.buddy.invoke<MemorySnapshot>("memory:list", { employeeId }),
   memoryClear: (employeeId: string) =>
     window.buddy.invoke<boolean>("memory:clear", { employeeId }),
+  forgetFact: (employeeId: string, factId: string) =>
+    window.buddy.invoke<boolean>("memory:forget", { employeeId, factId }),
+  restoreEmployee: (id: string) => window.buddy.invoke<Employee>("employee:restore", { id }),
+  purgeEmployee: (id: string) =>
+    window.buddy.invoke<{ workspaceDir: string }>("employee:purge", { id }),
   relaunch: () => window.buddy.invoke<boolean>("app:relaunch"),
 };

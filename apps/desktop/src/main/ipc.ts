@@ -59,6 +59,7 @@ export function registerIpc(
     bootstrapDir: services.bootstrapDir,
     config: config.get(),
     employees: employees.list(),
+    removedEmployees: employees.listRemoved(),
     rooms: rooms.list(),
     frameworks: await probeFrameworks(config),
     skills: await listSkills(services),
@@ -74,13 +75,19 @@ export function registerIpc(
 
   handle<{ employeeId: string }, unknown>("memory:list", async ({ employeeId }) => {
     const facts = await memory.listFacts(employeeId);
-    const pending = await memory.countPending(employeeId);
+    const pending = await memory.listPending(employeeId);
     return {
       count: facts.length,
-      pending,
-      recent: facts.slice(-5).reverse(),
+      pendingCount: pending.length,
+      facts: facts.slice().reverse(),
+      pending: pending.slice().reverse(),
     };
   });
+
+  handle<{ employeeId: string; factId: string }, boolean>(
+    "memory:forget",
+    ({ employeeId, factId }) => memory.forgetFact(employeeId, factId),
+  );
 
   handle<{ employeeId: string }, boolean>("memory:clear", async ({ employeeId }) => {
     await memory.clear(employeeId);
@@ -139,9 +146,41 @@ export function registerIpc(
     },
   );
 
-  handle<{ id: string }, boolean>("employee:remove", async ({ id }) => {
-    await employees.remove(id);
-    return true;
+  /**
+   * 从名册移除员工，**保留**房间与聊天记录（历史里仍然显示原来的名字）。
+   */
+  handle<{ id: string }, Employee>("employee:remove", ({ id }) => employees.remove(id));
+
+  /** 把移除的员工放回名册。 */
+  handle<{ id: string }, Employee>("employee:restore", ({ id }) => employees.restore(id));
+
+  /**
+   * 彻底删除：档案、记忆、与它的一对一房间及其消息。
+   * 群聊房间只把它移出成员，不删除房间本身。
+   * 工作目录留在磁盘上（可能装着用户的东西），只在回执里告知路径。
+   */
+  handle<{ id: string }, { workspaceDir: string }>("employee:purge", async ({ id }) => {
+    const employee = employees.get(id);
+    if (!employee) throw new Error(`员工不存在: ${id}`);
+
+    for (const room of rooms.list()) {
+      const isDirectWithEmployee =
+        room.kind === "direct" && room.memberIds.length === 1 && room.memberIds[0] === id;
+      if (isDirectWithEmployee) {
+        await rooms.remove(room.id);
+        await messages.removeRoom(room.id);
+        continue;
+      }
+      if (room.memberIds.includes(id)) {
+        await rooms.update(room.id, {
+          memberIds: room.memberIds.filter((memberId) => memberId !== id),
+        });
+      }
+    }
+
+    await memory.clear(id);
+    await employees.purge(id);
+    return { workspaceDir: employee.workspaceDir };
   });
 
   handle<{ name: string; memberIds?: string[]; kind?: "group" | "direct" }, unknown>(

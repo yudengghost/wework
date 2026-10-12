@@ -16,6 +16,8 @@ interface RoomViewProps {
   onAddMember: (employeeId: string) => Promise<void>;
   onRemoveMember: (employeeId: string) => Promise<void>;
   onDeleteRoom: () => void;
+  /** 房间里已经没有在册员工（例如员工已被移除）：只读，保留历史。 */
+  readOnly?: boolean;
 }
 
 export function RoomView(props: RoomViewProps) {
@@ -206,6 +208,11 @@ export function RoomView(props: RoomViewProps) {
       ))}
 
       <div className="composer">
+        {props.readOnly && (
+          <div className="readonly-hint">
+            房间里已经没有在册员工，这里只保留历史记录。想继续对话，去「员工管理」恢复或新建一名员工。
+          </div>
+        )}
         {suggestions.length > 0 && (
           <div className="mentions">
             {suggestions.map((employee) => (
@@ -237,8 +244,11 @@ export function RoomView(props: RoomViewProps) {
           <div className="grow">
             <textarea
               value={draft}
+              disabled={props.readOnly === true}
               placeholder={
-                isDirect
+                props.readOnly
+                  ? "该员工已离开名册，无法继续对话"
+                  : isDirect
                   ? `给 ${directPartner?.displayName ?? "员工"} 发消息…（Enter 发送，Shift+Enter 换行）`
                   : "输入消息，@ 员工指派任务；Enter 发送，Shift+Enter 换行"
               }
@@ -260,7 +270,7 @@ export function RoomView(props: RoomViewProps) {
             className="primary send-btn"
             title="发送（Enter）"
             onClick={() => void submit()}
-            disabled={draft.trim() === ""}
+            disabled={props.readOnly === true || draft.trim() === ""}
           >
             <SendIcon />
           </button>

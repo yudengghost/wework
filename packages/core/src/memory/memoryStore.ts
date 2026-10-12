@@ -96,6 +96,15 @@ export class MemoryStore {
     await this.store.write(this.pendingPath(employeeId), "");
   }
 
+  /** 忘掉某一条长期记忆。 */
+  async forgetFact(employeeId: string, factId: string): Promise<boolean> {
+    const all = await this.listFacts(employeeId);
+    const kept = all.filter((fact) => fact.id !== factId);
+    if (kept.length === all.length) return false;
+    await this.writeFacts(employeeId, kept);
+    return true;
+  }
+
   /** 清空该员工的全部记忆（长期 + 待归纳）。 */
   async clear(employeeId: string): Promise<void> {
     await this.store.write(this.factsPath(employeeId), "");

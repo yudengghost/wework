@@ -1077,6 +1077,41 @@ code {
   font-size: 12px;
 }
 
+/* 记忆查看：按行列出，可逐条遗忘 */
+.memory-list {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  max-height: 190px;
+  overflow-y: auto;
+  background: color-mix(in oklch, var(--bg) 50%, var(--surface-1));
+}
+
+.memory-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  border-bottom: 1px solid color-mix(in oklch, var(--line) 55%, transparent);
+  font-size: 12.5px;
+}
+
+.memory-item:last-child {
+  border-bottom: none;
+}
+
+.memory-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.memory-time {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+  padding-top: 2px;
+}
+
 /* ---- iOS 风格开关：用 checkbox 驱动，纯 CSS 画轨道与滑块 ---- */
 
 .switch {
@@ -1176,6 +1211,16 @@ code {
   font-size: 12px;
   margin-top: 7px;
   white-space: pre-wrap;
+}
+
+.readonly-hint {
+  margin-bottom: 9px;
+  padding: 8px 11px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-dim);
+  background: color-mix(in oklch, var(--warn) 10%, var(--surface-1));
+  border: 1px solid color-mix(in oklch, var(--warn) 30%, transparent);
 }
 
 /* 尊重系统的「减少动态效果」设置 */

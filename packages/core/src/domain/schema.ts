@@ -30,6 +30,11 @@ export const employeeSchema = z.object({
   skills: z.array(z.string()).default([]),
   permissions: permissionPolicySchema,
   sessionRef: z.string().min(1).optional(),
+  /**
+   * 软删除标记：员工离开名册，但档案仍保留（名字要用于历史记录显示）。
+   * 彻底删除会直接移除这条记录。
+   */
+  removedAt: isoDateTimeSchema.optional(),
   createdAt: isoDateTimeSchema,
 });
 export type Employee = z.infer<typeof employeeSchema>;

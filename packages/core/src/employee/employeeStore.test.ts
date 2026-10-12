@@ -114,20 +114,45 @@ describe("EmployeeStore", () => {
     );
   });
 
-  it("remove 后从名单与磁盘消失", async () => {
+  it("remove 是软删除：离开名册但档案保留，历史仍能解析出姓名", async () => {
     const store = await makeLoadedStore();
     const created = await store.create(input());
 
     await store.remove(created.id);
 
-    expect(store.get(created.id)).toBeUndefined();
+    expect(store.list()).toEqual([]);
+    expect(store.get(created.id)?.displayName).toBe("小码");
+    expect(store.listRemoved().map((item) => item.id)).toEqual([created.id]);
     expect((await makeLoadedStore()).list()).toEqual([]);
+    expect((await makeLoadedStore()).get(created.id)?.displayName).toBe("小码");
+  });
+
+  it("remove 后名字可以重新使用，restore 可以放回名册", async () => {
+    const store = await makeLoadedStore();
+    const created = await store.create(input({ displayName: "小码" }));
+
+    await store.remove(created.id);
+    const reused = await store.create(input({ displayName: "小码" }));
+    expect(reused.id).not.toBe(created.id);
+
+    await store.restore(created.id);
+    expect(store.list()).toHaveLength(2);
   });
 
   it("remove 不存在的员工抛 EmployeeNotFoundError", async () => {
     const store = await makeLoadedStore();
 
     await expect(store.remove("emp_missing")).rejects.toBeInstanceOf(EmployeeNotFoundError);
+  });
+
+  it("purge 彻底移除档案", async () => {
+    const store = await makeLoadedStore();
+    const created = await store.create(input());
+
+    await store.purge(created.id);
+
+    expect(store.get(created.id)).toBeUndefined();
+    expect(store.listAll()).toEqual([]);
   });
 
   it("损坏的员工文件抛 DataParseError", async () => {

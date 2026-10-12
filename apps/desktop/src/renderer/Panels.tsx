@@ -1,4 +1,10 @@
-import type { BuddyConfig, DeepPartial, Framework, PermissionMode } from "@buddy/core";
+import type {
+  BuddyConfig,
+  DeepPartial,
+  Employee,
+  Framework,
+  PermissionMode,
+} from "@buddy/core";
 import { useEffect, useState } from "react";
 
 import { api, type Bootstrap, type CreateEmployeePayload, type MemorySnapshot } from "./api";
@@ -150,10 +156,11 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [memory, setMemory] = useState<Record<string, MemorySnapshot>>({});
+  const [purgeTarget, setPurgeTarget] = useState<Employee | null>(null);
 
   const loadMemory = async (): Promise<void> => {
     const snapshots: Record<string, MemorySnapshot> = {};
-    for (const employee of boot.employees) {
+    for (const employee of [...boot.employees, ...boot.removedEmployees]) {
       snapshots[employee.id] = await api.memoryList(employee.id);
     }
     setMemory(snapshots);
@@ -209,19 +216,26 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                 )}
               </div>
               <button
-                className="danger"
+                title="从名册移除，聊天记录与记忆都保留"
                 onClick={() => {
                   void api.removeEmployee(employee.id).then(onChanged);
                 }}
               >
-                删除
+                移除
+              </button>
+              <button
+                className="danger"
+                title="连同记忆与一对一聊天记录一起删除"
+                onClick={() => setPurgeTarget(employee)}
+              >
+                彻底删除
               </button>
             </div>
             <div className="skill-inline" style={{ marginTop: 6 }}>
               <span className="sub">
                 记忆 {memory[employee.id]?.count ?? 0} 条
-                {(memory[employee.id]?.pending ?? 0) > 0
-                  ? ` · 待归纳 ${memory[employee.id]?.pending} 条`
+                {(memory[employee.id]?.pendingCount ?? 0) > 0
+                  ? ` · 待归纳 ${memory[employee.id]?.pendingCount} 条`
                   : ""}
               </span>
               <span className="sub">
@@ -264,24 +278,120 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                 </div>
               </div>
             )}
-            <div className="skill-inline">
-              <span className="sub">长期记忆：{memory[employee.id]?.count ?? 0} 条</span>
-              {(memory[employee.id]?.count ?? 0) > 0 && (
-                <button
-                  onClick={() => {
-                    void api.memoryClear(employee.id).then(async () => {
-                      await loadMemory();
-                    });
-                  }}
-                >
-                  清空记忆
-                </button>
-              )}
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label>
+                  长期记忆（{memory[employee.id]?.count ?? 0} 条
+                  {(memory[employee.id]?.pendingCount ?? 0) > 0
+                    ? ` · 待归纳 ${memory[employee.id]?.pendingCount} 条`
+                    : ""}
+                  ）
+                </label>
+                {(memory[employee.id]?.facts.length ?? 0) === 0 ? (
+                  <div className="sub">
+                    还没有归纳出长期记忆。员工的往来会先进暂存区，攒够条数才归纳成这里的记忆。
+                  </div>
+                ) : (
+                  <div className="memory-list">
+                    {(memory[employee.id]?.facts ?? []).map((fact) => (
+                      <div key={fact.id} className="memory-item">
+                        <span className={`tag${fact.kind === "digest" ? "" : " ok"}`}>
+                          {fact.kind === "digest" ? "摘要" : "事实"}
+                        </span>
+                        <span className="memory-text">{fact.text}</span>
+                        <span className="memory-time">
+                          {fact.createdAt.slice(5, 16).replace("T", " ")}
+                        </span>
+                        <button
+                          className="chip-x"
+                          title="忘掉这一条"
+                          onClick={() => {
+                            void api.forgetFact(employee.id, fact.id).then(loadMemory);
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(memory[employee.id]?.pendingCount ?? 0) > 0 && (
+                  <div className="sub" style={{ marginTop: 6 }}>
+                    最近一条待归纳：
+                    {(memory[employee.id]?.pending[0]?.text ?? "").slice(0, 80)}
+                  </div>
+                )}
+                {(memory[employee.id]?.count ?? 0) > 0 && (
+                  <div className="skill-inline" style={{ marginTop: 8 }}>
+                    <button
+                      onClick={() => {
+                        void api.memoryClear(employee.id).then(loadMemory);
+                      }}
+                    >
+                      清空全部记忆
+                    </button>
+                  </div>
+                )}
               </div>
             </details>
           </div>
         ))}
         {boot.employees.length === 0 && <p className="sub">还没有员工。</p>}
+
+        {boot.removedEmployees.length > 0 && (
+          <>
+            <h2 style={{ marginTop: 18, fontSize: 15 }}>已移除（聊天记录保留）</h2>
+            <p className="sub">
+              这些员工已离开名册，不会再被 @ 到，也不能派新活；但历史消息仍能正常显示它们原来的名字。
+            </p>
+            {boot.removedEmployees.map((employee) => (
+              <div key={employee.id} className="card">
+                <div className="row">
+                  <div className="grow">
+                    <strong>{employee.displayName}</strong>
+                    <span className="tag" style={{ marginLeft: 8 }}>
+                      {employee.framework}
+                    </span>
+                    <span className="tag bad" style={{ marginLeft: 4 }}>
+                      已移除
+                    </span>
+                  </div>
+                  <button onClick={() => void api.restoreEmployee(employee.id).then(onChanged)}>
+                    恢复
+                  </button>
+                  <button className="danger" onClick={() => setPurgeTarget(employee)}>
+                    彻底删除
+                  </button>
+                </div>
+                <div className="sub">
+                  移除于 {(employee.removedAt ?? "").slice(0, 10)} · 记忆{" "}
+                  {memory[employee.id]?.count ?? 0} 条
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {purgeTarget && (
+          <ConfirmDialog
+            title={`彻底删除「${purgeTarget.displayName}」？`}
+            body="会删除：员工档案、它的全部记忆、与它的一对一聊天记录（群聊里的历史消息保留，只把它移出成员）。工作目录留在磁盘上不会动。此操作不可撤销。"
+            confirmLabel="彻底删除"
+            onCancel={() => setPurgeTarget(null)}
+            onConfirm={() => {
+              const target = purgeTarget;
+              setPurgeTarget(null);
+              void api
+                .purgeEmployee(target.id)
+                .then(async (result) => {
+                  await onChanged();
+                  window.alert(
+                    `已彻底删除「${target.displayName}」。\n\n工作目录仍在：\n${result.workspaceDir}\n（里面可能有你的文件，所以没有自动删除）`,
+                  );
+                })
+                .catch((cause: unknown) => setError(String(cause)));
+            }}
+          />
+        )}
 
         <h2 style={{ marginTop: 18 }}>新建员工</h2>
         <div className="grid2">

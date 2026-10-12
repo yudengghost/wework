@@ -317,6 +317,11 @@ export class RoomService {
       this.skip(task.roomId, task.employeeId, "员工不存在");
       return;
     }
+    if (employee.removedAt) {
+      // 员工已被移出名册：不再为它跑任务，历史记录保持可读。
+      this.skip(task.roomId, task.employeeId, "员工已被移除");
+      return;
+    }
 
     this.roomRunCounts.set(task.roomId, (this.roomRunCounts.get(task.roomId) ?? 0) + 1);
 

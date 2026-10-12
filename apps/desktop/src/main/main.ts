@@ -58,10 +58,19 @@ async function createWindow(): Promise<void> {
  */
 const smokeScript = `(async () => {
   const out = {};
-  const boot = await window.buddy.invoke("app:bootstrap");
-  out.dataDir = boot.dataDir;
-  out.frameworks = Object.entries(boot.frameworks).map(([k, v]) => k + "=" + v.status).join(",");
-  out.skillCount = boot.skills.length;
+  const step = async (name, fn) => {
+    try {
+      out[name] = await fn();
+    } catch (error) {
+      out[name] = "ERR:" + String(error && error.message ? error.message : error);
+    }
+  };
+  await step("dataDir", async () => (await window.buddy.invoke("app:bootstrap")).dataDir);
+  await step("frameworks", async () => {
+    const boot = await window.buddy.invoke("app:bootstrap");
+    return Object.entries(boot.frameworks).map(([k, v]) => k + "=" + v.status).join(",");
+  });
+  await step("skillCount", async () => (await window.buddy.invoke("app:bootstrap")).skills.length);
 
   const employee = await window.buddy.invoke("employee:create", {
     displayName: "联调员工",
@@ -106,12 +115,43 @@ const smokeScript = `(async () => {
   const memory = await window.buddy.invoke("memory:list", { employeeId: employee.id });
   out.memoryCount = memory.count;
 
-  const beforeDelete = await window.buddy.invoke("app:bootstrap");
-  out.roomsBeforeDelete = beforeDelete.rooms.length;
-  await window.buddy.invoke("room:remove", { id: group.id });
-  const after = await window.buddy.invoke("app:bootstrap");
-  out.roomsAfterDelete = after.rooms.length;
-  out.employees = after.employees.length;
+  // 移除 / 恢复 / 彻底删除 的生命周期
+  await step("softRemoved", async () => {
+    const removed = await window.buddy.invoke("employee:remove", { id: employee.id });
+    return Boolean(removed.removedAt);
+  });
+  await step("activeAfterRemove", async () =>
+    String((await window.buddy.invoke("app:bootstrap")).employees.length),
+  );
+  await step("removedListed", async () =>
+    String((await window.buddy.invoke("app:bootstrap")).removedEmployees.length),
+  );
+  await step("directRoomKept", async () =>
+    String(
+      (await window.buddy.invoke("app:bootstrap")).rooms.some((room) => room.id === direct.id),
+    ),
+  );
+  await step("restored", async () => {
+    const restored = await window.buddy.invoke("employee:restore", { id: employee.id });
+    return String(restored.removedAt === undefined);
+  });
+  await step("memoryShape", async () =>
+    Object.keys(await window.buddy.invoke("memory:list", { employeeId: employee.id }))
+      .sort()
+      .join("/"),
+  );
+  await step("purgeWorkspacePath", async () =>
+    String(Boolean((await window.buddy.invoke("employee:purge", { id: employee.id })).workspaceDir)),
+  );
+  await step("finalEmployees", async () =>
+    String((await window.buddy.invoke("app:bootstrap")).employees.length),
+  );
+  await step("finalRemoved", async () =>
+    String((await window.buddy.invoke("app:bootstrap")).removedEmployees.length),
+  );
+  await step("finalRooms", async () =>
+    String((await window.buddy.invoke("app:bootstrap")).rooms.length),
+  );
   return JSON.stringify(out);
 })()`;
 
