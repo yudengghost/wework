@@ -15,6 +15,7 @@ export const schedulerSettingsSchema = z.object({
   maxMentionDepth: z.number().int().nonnegative().default(3),
   dedupeWindowMs: z.number().int().nonnegative().default(5000),
   wallClockBudgetMs: z.number().int().positive().default(600000),
+  /** 上下文条数上限：冷启动时作为起步窗口，之后作为增量的封顶。 */
   contextWindowMessages: z.number().int().positive().default(50),
 });
 export type SchedulerSettings = z.infer<typeof schedulerSettingsSchema>;
@@ -48,14 +49,14 @@ export type StorageSettings = z.infer<typeof storageSettingsSchema>;
 
 export const memorySettingsSchema = z.object({
   enabled: z.boolean().default(true),
-  /** 员工在别的房间里的记忆是否也带进当前房间。 */
+  /** 在别的房间里学到的东西，是否也带进当前房间。 */
   crossRoomRecall: z.boolean().default(true),
-  /** 记忆条数超过该值后触发一次整理。 */
-  consolidateAfterEntries: z.number().int().positive().default(20),
-  /** 每位员工保留的记忆条数上限。 */
-  maxEntriesPerEmployee: z.number().int().positive().default(200),
-  /** 每次运行注入多少条记忆。 */
-  maxInjectedEntries: z.number().int().positive().default(8),
+  /** 累计多少次往来后归纳一次长期记忆。 */
+  distillAfterPending: z.number().int().positive().default(6),
+  /** 长期记忆条数上限，超出后最旧的会被折叠成摘要。 */
+  maxFacts: z.number().int().positive().default(60),
+  /** 每次运行注入多少条长期记忆。 */
+  maxInjectedFacts: z.number().int().positive().default(6),
 });
 export type MemorySettings = z.infer<typeof memorySettingsSchema>;
 

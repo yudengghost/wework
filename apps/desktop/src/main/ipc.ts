@@ -73,8 +73,13 @@ export function registerIpc(
   handle("skills:catalog", () => listSkills(services));
 
   handle<{ employeeId: string }, unknown>("memory:list", async ({ employeeId }) => {
-    const entries = await memory.list(employeeId);
-    return { count: entries.length, recent: entries.slice(-5).reverse() };
+    const facts = await memory.listFacts(employeeId);
+    const pending = await memory.countPending(employeeId);
+    return {
+      count: facts.length,
+      pending,
+      recent: facts.slice(-5).reverse(),
+    };
   });
 
   handle<{ employeeId: string }, boolean>("memory:clear", async ({ employeeId }) => {

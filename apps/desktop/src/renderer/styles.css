@@ -412,3 +412,78 @@ code {
   padding: 0 4px;
   font-size: 12px;
 }
+
+/* 折叠分组：默认收起，避免一屏塞满所有设置 */
+.settings-group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: var(--panel-2);
+}
+
+.settings-group > summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.settings-group > summary::before {
+  content: "▸";
+  color: var(--muted);
+  margin-right: 8px;
+}
+
+.settings-group[open] > summary::before {
+  content: "▾";
+}
+
+.settings-group .group-body {
+  padding: 0 12px 12px;
+}
+
+.settings-group .card {
+  background: #12151b;
+}
+
+.emp-details {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.emp-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.emp-details .mono {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  margin: 6px 0;
+  word-break: break-all;
+}
+
+/* 提示改用右上角浮层，避免把输入框往下顶 */
+.toasts {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 40;
+  max-width: 380px;
+}
+
+.toast {
+  background: #241d10;
+  border: 1px solid #4a3a1c;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #f0d9a8;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}

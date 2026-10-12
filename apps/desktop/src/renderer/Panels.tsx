@@ -3,45 +3,85 @@ import { useEffect, useState } from "react";
 
 import { api, type Bootstrap, type CreateEmployeePayload, type MemorySnapshot } from "./api";
 
-interface PromptDialogProps {
-  title: string;
-  label: string;
-  initial: string;
+interface CreateRoomDialogProps {
+  employees: Bootstrap["employees"];
   onCancel: () => void;
-  onSubmit: (value: string) => void;
+  onSubmit: (name: string, memberIds: string[]) => void;
 }
 
 /**
- * Electron 不支持 window.prompt（调用会直接失败），所以自建一个输入弹窗。
+ * 新建群聊：成员由用户自己挑，不再默认拉所有人。
+ * （Electron 不支持 window.prompt，所以一切都用应用内弹窗。）
  */
-export function PromptDialog({
-  title,
-  label,
-  initial,
-  onCancel,
-  onSubmit,
-}: PromptDialogProps) {
-  const [value, setValue] = useState(initial);
+export function CreateRoomDialog({ employees, onCancel, onSubmit }: CreateRoomDialogProps) {
+  const [name, setName] = useState("新房间");
+  const [selected, setSelected] = useState<string[]>([]);
+
+  const toggle = (employeeId: string): void => {
+    setSelected((prev) =>
+      prev.includes(employeeId)
+        ? prev.filter((id) => id !== employeeId)
+        : [...prev, employeeId],
+    );
+  };
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal" style={{ width: 420 }} onClick={(event) => event.stopPropagation()}>
-        <h2>{title}</h2>
+      <div className="modal" style={{ width: 480 }} onClick={(event) => event.stopPropagation()}>
+        <h2>新建群聊</h2>
+        <p className="sub">选择要拉进来的员工。建好后在房间头部仍可随时增减成员。</p>
         <div className="field">
-          <label>{label}</label>
+          <label>房间名称</label>
           <input
             autoFocus
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") onSubmit(value);
               if (event.key === "Escape") onCancel();
             }}
           />
         </div>
+        <div className="field">
+          <label>
+            成员（已选 {selected.length} / {employees.length}）
+          </label>
+          {employees.length === 0 ? (
+            <div className="sub">还没有员工，先去「员工管理」创建一名。</div>
+          ) : (
+            <>
+              <div className="skill-inline" style={{ marginTop: 0, marginBottom: 8 }}>
+                <button onClick={() => setSelected(employees.map((item) => item.id))}>
+                  全选
+                </button>
+                <button onClick={() => setSelected([])}>清空</button>
+              </div>
+              <div className="skill-list">
+                {employees.map((employee) => (
+                  <label key={employee.id} className="skill">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(employee.id)}
+                      onChange={() => toggle(employee.id)}
+                    />
+                    <span>
+                      <strong>{employee.displayName}</strong>
+                      <span className="tag" style={{ marginLeft: 6 }}>
+                        {employee.framework}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
         <div className="row">
-          <button className="primary" onClick={() => onSubmit(value)}>
-            确定
+          <button
+            className="primary"
+            disabled={selected.length === 0 || name.trim() === ""}
+            onClick={() => onSubmit(name.trim(), selected)}
+          >
+            创建
           </button>
           <button onClick={onCancel}>取消</button>
         </div>
@@ -144,9 +184,21 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                 删除
               </button>
             </div>
-            <div className="sub" style={{ color: "var(--muted)", fontSize: 12, marginTop: 6 }}>
-              {employee.workspaceDir}
+            <div className="skill-inline" style={{ marginTop: 6 }}>
+              <span className="sub">
+                记忆 {memory[employee.id]?.count ?? 0} 条
+                {(memory[employee.id]?.pending ?? 0) > 0
+                  ? ` · 待归纳 ${memory[employee.id]?.pending} 条`
+                  : ""}
+              </span>
+              <span className="sub">
+                技能 {employee.skills.length} / {boot.skills.length}
+              </span>
+              {employee.sessionRef && <span className="sub">有进行中的会话</span>}
             </div>
+            <details className="emp-details">
+              <summary>工作目录、技能与记忆管理</summary>
+              <div className="sub mono">{employee.workspaceDir}</div>
             {boot.skills.length > 0 && (
               <div className="skill-inline">
                 <span className="sub">技能：</span>
@@ -169,7 +221,7 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
               </div>
             )}
             <div className="skill-inline">
-              <span className="sub">记忆：{memory[employee.id]?.count ?? 0} 条</span>
+              <span className="sub">长期记忆：{memory[employee.id]?.count ?? 0} 条</span>
               {(memory[employee.id]?.count ?? 0) > 0 && (
                 <button
                   onClick={() => {
@@ -181,7 +233,8 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                   清空记忆
                 </button>
               )}
-            </div>
+              </div>
+            </details>
           </div>
         ))}
         {boot.employees.length === 0 && <p className="sub">还没有员工。</p>}
@@ -348,7 +401,9 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
         <h2>设置</h2>
         <p className="sub">数据目录：{boot.dataDir}</p>
 
-        <h2 style={{ fontSize: 14 }}>启动器</h2>
+        <details className="settings-group">
+          <summary>启动器（Codex / Claude Code 路径）</summary>
+          <div className="group-body">
         {(["codex", "claude-code"] as const).map((framework) => (
           <div key={framework} className="card">
             <div className="row">
@@ -408,7 +463,11 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
           </div>
         ))}
 
-        <h2 style={{ fontSize: 14 }}>策略</h2>
+        </div></details>
+
+        <details className="settings-group">
+          <summary>策略（谁可以自动触发谁）</summary>
+          <div className="group-body">
         <div className="card">
           {(
             [
@@ -456,7 +515,11 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
           </div>
         </div>
 
-        <h2 style={{ fontSize: 14 }}>调度与刹车</h2>
+        </div></details>
+
+        <details className="settings-group">
+          <summary>调度与刹车（并发、预算、去重）</summary>
+          <div className="group-body">
         <div className="grid2">
           {(
             [
@@ -480,7 +543,11 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
           ))}
         </div>
 
-        <h2 style={{ fontSize: 14 }}>员工记忆</h2>
+        </div></details>
+
+        <details className="settings-group">
+          <summary>员工记忆（归纳、阈值、注入条数）</summary>
+          <div className="group-body">
         <div className="card">
           <label style={{ fontSize: 12, color: "var(--muted)" }}>
             <input
@@ -510,9 +577,9 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
           <div className="grid2" style={{ marginTop: 10 }}>
             {(
               [
-                ["consolidateAfterEntries", "记忆满多少条后整理"],
-                ["maxEntriesPerEmployee", "每位员工记忆上限"],
-                ["maxInjectedEntries", "每次运行注入条数"],
+                ["distillAfterPending", "累计多少次往来后归纳"],
+                ["maxFacts", "长期记忆条数上限"],
+                ["maxInjectedFacts", "每次运行注入条数"],
               ] as const
             ).map(([key, label]) => (
               <div className="field" key={key}>
@@ -532,7 +599,11 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
           </div>
         </div>
 
-        <h2 style={{ fontSize: 14 }}>技能目录</h2>
+        </div></details>
+
+        <details className="settings-group">
+          <summary>技能目录</summary>
+          <div className="group-body">
         <div className="card">
           <label style={{ fontSize: 12, color: "var(--muted)" }}>
             <input
@@ -572,7 +643,11 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
           </div>
         </div>
 
-        <h2 style={{ fontSize: 14 }}>数据位置</h2>
+        </div></details>
+
+        <details className="settings-group">
+          <summary>数据位置</summary>
+          <div className="group-body">
         <div className="card">
           <div className="sub" style={{ marginBottom: 6 }}>
             当前数据目录：{boot.dataDir}
@@ -604,7 +679,11 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
           </div>
         </div>
 
-        <h2 style={{ fontSize: 14 }}>内置兜底员工（OpenAI 兼容接口）</h2>
+        </div></details>
+
+        <details className="settings-group">
+          <summary>内置兜底员工（暂未实现）</summary>
+          <div className="group-body">
         <div className="grid2">
           <div className="field">
             <label>Base URL</label>
@@ -644,6 +723,8 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
             />
           </div>
         </div>
+
+        </div></details>
 
         <div className="row">
           <button className="primary" onClick={() => void save()}>

@@ -25,6 +25,7 @@ export interface Bootstrap {
 
 export interface MemorySnapshot {
   count: number;
+  pending: number;
   recent: { id: string; kind: string; text: string; createdAt: string }[];
 }
 

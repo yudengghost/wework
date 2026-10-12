@@ -20,86 +20,85 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const exchange = (text: string, roomId = "room_1") =>
-  ({ kind: "exchange" as const, scope: "group" as const, roomId, text });
+describe("MemoryStore 长期记忆", () => {
+  it("追加并按顺序读回", async () => {
+    await memory.appendFact("emp_1", "用户偏好用中文交流", "fact", "room_1");
+    await memory.appendFact("emp_1", "约定：提交前必须跑测试", "fact", "room_1");
 
-describe("MemoryStore", () => {
-  it("按写入顺序读回", async () => {
-    await memory.append("emp_1", exchange("第一条"));
-    await memory.append("emp_1", exchange("第二条"));
+    const facts = await memory.listFacts("emp_1");
 
-    const all = await memory.list("emp_1");
+    expect(facts.map((fact) => fact.text)).toEqual([
+      "用户偏好用中文交流",
+      "约定：提交前必须跑测试",
+    ]);
+    expect(facts[0]?.id).toMatch(/^mem_[0-9a-f]{12}$/);
+    expect(facts[0]?.roomId).toBe("room_1");
+  });
 
-    expect(all.map((entry) => entry.text)).toEqual(["第一条", "第二条"]);
-    expect(all[0]?.id).toMatch(/^mem_[0-9a-f]{12}$/);
+  it("recentFacts 只取最后 N 条", async () => {
+    for (let index = 1; index <= 5; index += 1) {
+      await memory.appendFact("emp_1", `第${index}条`);
+    }
+
+    expect((await memory.recentFacts("emp_1", 2)).map((fact) => fact.text)).toEqual([
+      "第4条",
+      "第5条",
+    ]);
+  });
+
+  it("writeFacts 整体替换", async () => {
+    await memory.appendFact("emp_1", "旧的");
+
+    await memory.writeFacts("emp_1", [
+      { id: "mem_x", kind: "digest", text: "折叠摘要", createdAt: "2026-10-12T00:00:00.000Z" },
+    ]);
+
+    expect((await memory.listFacts("emp_1")).map((fact) => fact.kind)).toEqual(["digest"]);
   });
 
   it("员工之间互不干扰", async () => {
-    await memory.append("emp_1", exchange("甲的"));
-    await memory.append("emp_2", exchange("乙的"));
+    await memory.appendFact("emp_1", "甲的");
+    await memory.appendFact("emp_2", "乙的");
 
-    expect((await memory.list("emp_1")).map((entry) => entry.text)).toEqual(["甲的"]);
-    expect(await memory.count("emp_2")).toBe(1);
+    expect(await memory.countFacts("emp_1")).toBe(1);
+    expect((await memory.listFacts("emp_2")).map((fact) => fact.text)).toEqual(["乙的"]);
+  });
+});
+
+describe("MemoryStore 待归纳暂存区", () => {
+  it("暂存内容不会被当成长期记忆", async () => {
+    await memory.appendPending("emp_1", { roomId: "room_1", scope: "group", text: "一次往来" });
+
+    expect(await memory.countPending("emp_1")).toBe(1);
+    expect(await memory.countFacts("emp_1")).toBe(0);
   });
 
-  it("recent 只取最后 N 条", async () => {
-    for (let index = 1; index <= 5; index += 1) {
-      await memory.append("emp_1", exchange(`第${index}条`));
-    }
+  it("clearPending 只清暂存，不动长期记忆", async () => {
+    await memory.appendFact("emp_1", "长期");
+    await memory.appendPending("emp_1", { roomId: "room_1", scope: "direct", text: "暂存" });
 
-    expect((await memory.recent("emp_1", 2)).map((entry) => entry.text)).toEqual([
-      "第4条",
-      "第5条",
-    ]);
+    await memory.clearPending("emp_1");
+
+    expect(await memory.countPending("emp_1")).toBe(0);
+    expect(await memory.countFacts("emp_1")).toBe(1);
   });
 
-  it("consolidate 保留最新若干条并把更旧的折叠成一条摘要", async () => {
-    for (let index = 1; index <= 6; index += 1) {
-      await memory.append("emp_1", exchange(`第${index}条`));
-    }
-
-    const absorbed = await memory.consolidate("emp_1", 2, "前四条综述");
-    const all = await memory.list("emp_1");
-
-    expect(absorbed).toBe(4);
-    expect(all).toHaveLength(3);
-    expect(all[0]).toMatchObject({ kind: "digest", text: "前四条综述" });
-    expect(all.slice(1).map((entry) => entry.text)).toEqual(["第5条", "第6条"]);
-  });
-
-  it("条数不足时 consolidate 不做任何事", async () => {
-    await memory.append("emp_1", exchange("唯一一条"));
-
-    expect(await memory.consolidate("emp_1", 5, "不该出现")).toBe(0);
-    expect(await memory.count("emp_1")).toBe(1);
-  });
-
-  it("trim 从最旧处丢弃", async () => {
-    for (let index = 1; index <= 5; index += 1) {
-      await memory.append("emp_1", exchange(`第${index}条`));
-    }
-
-    expect(await memory.trim("emp_1", 2)).toBe(3);
-    expect((await memory.list("emp_1")).map((entry) => entry.text)).toEqual([
-      "第4条",
-      "第5条",
-    ]);
-  });
-
-  it("clear 清空某位员工的记忆，不影响别人", async () => {
-    await memory.append("emp_1", exchange("甲"));
-    await memory.append("emp_2", exchange("乙"));
+  it("clear 同时清空长期记忆与暂存", async () => {
+    await memory.appendFact("emp_1", "长期");
+    await memory.appendPending("emp_1", { roomId: "room_1", scope: "group", text: "暂存" });
 
     await memory.clear("emp_1");
 
-    expect(await memory.count("emp_1")).toBe(0);
-    expect(await memory.count("emp_2")).toBe(1);
+    expect(await memory.countFacts("emp_1")).toBe(0);
+    expect(await memory.countPending("emp_1")).toBe(0);
   });
+});
 
+describe("MemoryStore 健壮性", () => {
   it("坏行抛 DataParseError 并指出行号", async () => {
     const store = new FileStore();
     await store.write(join(root, "memory", "emp_1.jsonl"), '{"text":"ok"}\n{bad\n');
 
-    await expect(memory.list("emp_1")).rejects.toBeInstanceOf(DataParseError);
+    await expect(memory.listFacts("emp_1")).rejects.toBeInstanceOf(DataParseError);
   });
 });

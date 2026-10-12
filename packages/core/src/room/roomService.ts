@@ -8,6 +8,7 @@ import { EventBus } from "../events/eventBus";
 import type { MemoryStore } from "../memory/memoryStore";
 import type { SkillInfo } from "../skills/skillCatalog";
 import { parseMentions } from "./mentions";
+import type { CursorStore } from "./cursorStore";
 import type { MessageLog } from "./messageLog";
 import type { RoomStore } from "./roomStore";
 
@@ -32,6 +33,7 @@ export interface RoomServiceDeps {
   rooms: RoomStore;
   messages: MessageLog;
   createAdapter: (employee: Employee) => Promise<AdapterCreation>;
+  cursors: CursorStore;
   memory?: MemoryStore;
   /** 该员工启用的技能，用于在提示词里告诉它有哪些能力可用。 */
   skillsFor?: (employee: Employee) => Promise<SkillInfo[]>;
@@ -63,6 +65,16 @@ function truncate(text: string, max: number): string {
 
 function oneLine(text: string): string {
   return text.replace(/\s*\n\s*/g, " / ").trim();
+}
+
+/** 从归纳结果里取出行首是 `- ` / `* ` 的条目，忽略「无」这类空回答。 */
+function extractBullets(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^[-*]\s+\S/.test(line))
+    .map((line) => line.replace(/^[-*]\s+/, "").trim())
+    .filter((line) => line !== "无" && line !== "（无）" && line !== "none");
 }
 
 /**
@@ -427,8 +439,13 @@ export class RoomService {
 
   private async buildPrompt(task: RunTask, employee: Employee): Promise<string> {
     const { contextWindowMessages } = this.deps.config.get().scheduler;
-    const transcript = await this.deps.messages.readRecent(task.roomId, contextWindowMessages);
-    const lines = transcript
+    const cursor = this.deps.cursors.get(employee.id, task.roomId) ?? null;
+    const delta = await this.deps.messages.readAfter(
+      task.roomId,
+      cursor,
+      contextWindowMessages,
+    );
+    const contextLines = delta
       .map((message) => `${this.labelOf(message)}: ${message.body}`)
       .join("\n");
     const from = this.labelOf(task.trigger);
@@ -436,10 +453,12 @@ export class RoomService {
     const skills = await this.skillBlock(employee);
 
     return [
-      "以下是房间最近的对话记录：",
-      "<room_transcript>",
-      lines,
-      "</room_transcript>",
+      cursor === null
+        ? "你第一次在这个房间干活，下面是最近的对话供你了解背景："
+        : "下面是这个房间里你上次干活之后的新消息：",
+      "<context>",
+      contextLines === "" ? "（没有新消息）" : contextLines,
+      "</context>",
       ...(memory === "" ? [] : ["", memory]),
       ...(skills === "" ? [] : ["", skills]),
       "",
@@ -455,17 +474,18 @@ export class RoomService {
     const settings = this.deps.config.get().memory;
     if (!memory || !settings.enabled) return "";
 
-    const recent = await memory.recent(employee.id, settings.maxInjectedEntries);
-    const entries = settings.crossRoomRecall
-      ? recent
-      : recent.filter((entry) => entry.roomId === task.roomId);
-    if (entries.length === 0) return "";
+    const all = await memory.listFacts(employee.id);
+    const scoped = settings.crossRoomRecall
+      ? all
+      : all.filter((fact) => fact.roomId === task.roomId);
+    const facts = scoped.slice(Math.max(0, scoped.length - settings.maxInjectedFacts));
+    if (facts.length === 0) return "";
 
     return [
-      "<your_memory>",
-      "（你的长期记忆，供参考，不必逐条回应）",
-      ...entries.map((entry) => `- [${entry.kind}] ${oneLine(entry.text)}`),
-      "</your_memory>",
+      "<long_term_memory>",
+      "（你的长期记忆：以前归纳下来的约定与结论，不是本次对话内容）",
+      ...facts.map((fact) => `- ${oneLine(fact.text)}`),
+      "</long_term_memory>",
     ].join("\n");
   }
 
@@ -492,6 +512,10 @@ export class RoomService {
     this.track(this.recordMemory(task, employee, replyBody));
   }
 
+  /**
+   * 一次往来先进暂存区，并推进上下文游标。
+   * 只有归纳之后的内容才会变成长期记忆——原始流水不是记忆。
+   */
   private async recordMemory(
     task: RunTask,
     employee: Employee,
@@ -503,64 +527,121 @@ export class RoomService {
     const room = this.deps.rooms.get(task.roomId);
 
     try {
-      await memory.append(employee.id, {
-        kind: "exchange",
+      await this.deps.cursors.set(employee.id, task.roomId, task.trigger.id);
+      await memory.appendPending(employee.id, {
         scope: room?.kind === "direct" ? "direct" : "group",
         roomId: task.roomId,
-        text: `任务：${truncate(oneLine(task.trigger.body), 300)}\n结果：${truncate(oneLine(replyBody), 500)}`,
+        text: `任务：${truncate(oneLine(task.trigger.body), 200)} → 我的处理：${truncate(oneLine(replyBody), 300)}`,
       });
 
-      const count = await memory.count(employee.id);
-      if (count >= settings.consolidateAfterEntries) {
-        await this.consolidateMemory(employee, settings.maxInjectedEntries);
-      } else if (count > settings.maxEntriesPerEmployee) {
-        await memory.trim(employee.id, settings.maxEntriesPerEmployee);
+      if ((await memory.countPending(employee.id)) >= settings.distillAfterPending) {
+        await this.distill(employee);
       }
     } catch {
       // 记忆属于增强能力，失败不应影响主流程。
     }
   }
 
-  /** 把最旧的若干条记忆交给员工自己压缩成一条摘要。 */
-  private async consolidateMemory(employee: Employee, keepLast: number): Promise<void> {
+  /**
+   * 归纳：把暂存的往来交给员工自己提炼成长期记忆。
+   * 明确要求只留约定、决定、偏好、未完成事项，避免把寒暄和流水账当记忆。
+   */
+  private async distill(employee: Employee): Promise<void> {
     const memory = this.deps.memory;
     if (!memory) return;
-    const settings = this.deps.config.get().memory;
-    const entries = await memory.list(employee.id);
-    const keep = Math.min(keepLast, entries.length);
-    const absorb = entries.slice(0, entries.length - keep);
-    if (absorb.length === 0) return;
+    const pending = await memory.listPending(employee.id);
+    if (pending.length === 0) return;
 
     const created = await this.deps.createAdapter(employee);
     if (!created.ok) {
-      await memory.trim(employee.id, settings.maxEntriesPerEmployee);
+      await memory.clearPending(employee.id);
       return;
     }
 
+    const existing = await memory.listFacts(employee.id);
     const prompt = [
-      "下面是你自己的历史记忆条目。请把它们压缩成一段不超过 200 字的摘要，",
-      "保留事实、结论、约定和尚未完成的事项，去掉寒暄与重复。只输出摘要正文。",
-      "<memory_entries>",
-      ...absorb.map((entry) => `- ${oneLine(entry.text)}`),
-      "</memory_entries>",
+      "下面是你最近的工作往来，以及你已经记住的内容。",
+      "请提炼出值得**长期记住**的新信息：约定、决定、用户偏好、重要事实、未完成事项。",
+      "不要记录寒暄、一次性细节，也不要重复已经记住的内容。",
+      "每行输出一条，以「- 」开头；如果没有任何值得记住的，只输出「无」。",
+      "<recent_work>",
+      ...pending.map((entry) => `- ${oneLine(entry.text)}`),
+      "</recent_work>",
+      ...(existing.length === 0
+        ? []
+        : ["<already_remembered>", ...existing.map((fact) => `- ${oneLine(fact.text)}`), "</already_remembered>"]),
     ].join("\n");
 
     try {
       const result = await created.adapter.run({
         prompt,
-        systemPrompt: "你是记忆整理器，只做压缩归纳。",
+        systemPrompt: "你是记忆整理器，只做归纳，不执行任何任务。",
         cwd: employee.workspaceDir,
         permissions: employee.permissions,
         timeoutMs: 120000,
       });
-      const text =
-        result.ok && result.text.trim() !== ""
-          ? truncate(oneLine(result.text), 600)
-          : `${absorb.length} 条旧记忆已折叠`;
-      await memory.consolidate(employee.id, keep, text);
+      const learned = result.ok ? extractBullets(result.text) : [];
+      for (const line of learned.slice(0, 8)) {
+        await memory.appendFact(
+          employee.id,
+          truncate(line, 300),
+          "fact",
+          pending[0]?.roomId,
+        );
+      }
+      await memory.clearPending(employee.id);
+      await this.shrinkFacts(employee);
     } catch {
-      await memory.trim(employee.id, settings.maxEntriesPerEmployee);
+      await memory.clearPending(employee.id);
     }
+  }
+
+  /** 长期记忆超上限时，把最旧的落成一条摘要，避免无限增长。 */
+  private async shrinkFacts(employee: Employee): Promise<void> {
+    const memory = this.deps.memory;
+    if (!memory) return;
+    const settings = this.deps.config.get().memory;
+    const all = await memory.listFacts(employee.id);
+    if (all.length <= settings.maxFacts) return;
+
+    const keepCount = Math.max(1, Math.floor(settings.maxFacts / 2));
+    const keep = all.slice(all.length - keepCount);
+    const absorbed = all.slice(0, all.length - keep.length);
+
+    let digestText = `（更早的 ${absorbed.length} 条记忆已折叠）`;
+    const created = await this.deps.createAdapter(employee);
+    if (created.ok) {
+      try {
+        const result = await created.adapter.run({
+          prompt: [
+            "把下面这些长期记忆条目合并成一段不超过 200 字的摘要，保留事实、约定与未完成事项。只输出摘要正文。",
+            "<memory>",
+            ...absorbed.map((fact) => `- ${oneLine(fact.text)}`),
+            "</memory>",
+          ].join("\n"),
+          systemPrompt: "你是记忆整理器，只做归纳。",
+          cwd: employee.workspaceDir,
+          permissions: employee.permissions,
+          timeoutMs: 120000,
+        });
+        if (result.ok && result.text.trim() !== "") {
+          digestText = truncate(oneLine(result.text), 600);
+        }
+      } catch {
+        // 用兜底文案。
+      }
+    }
+
+    await memory.writeFacts(employee.id, [
+      {
+        id: createId("mem"),
+        kind: "digest",
+        text: digestText,
+        roomId: absorbed[0]?.roomId,
+        createdAt: new Date().toISOString(),
+      },
+      ...keep,
+    ]);
   }
 
   private labelOf(message: Message): string {

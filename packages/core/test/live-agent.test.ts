@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   ConfigStore,
+  CursorStore,
   EmployeeStore,
   FileStore,
   MessageLog,
@@ -87,12 +88,15 @@ describe.skipIf(!liveEnabled)("真实房间端到端联调", () => {
     const rooms = new RoomStore(store, join(workDir, "rooms.json"));
     await rooms.load();
     const messages = new MessageLog(store, workDir);
+    const cursors = new CursorStore(store, join(workDir, "cursors.json"));
+    await cursors.load();
 
     const service = new RoomService({
       config,
       employees,
       rooms,
       messages,
+      cursors,
       createAdapter: (employee) =>
         createAdapterForEmployee({ employee, launchers: config.get().launchers }),
     });

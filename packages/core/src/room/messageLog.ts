@@ -53,6 +53,26 @@ export class MessageLog {
     return limit >= all.length ? all : all.slice(all.length - limit);
   }
 
+  /**
+   * 读游标之后的消息（增量上下文）。
+   * 游标为空表示该员工第一次在这个房间干活，退化成最近 limit 条作为起步上下文；
+   * 游标指向的消息已经不存在（房间被清空等）时同样退化，避免整段历史丢失。
+   */
+  async readAfter(
+    roomId: string,
+    afterMessageId: string | null,
+    limit: number,
+  ): Promise<Message[]> {
+    const all = await this.readAll(roomId);
+    if (afterMessageId === null) return all.slice(Math.max(0, all.length - limit));
+
+    const index = all.findIndex((message) => message.id === afterMessageId);
+    if (index === -1) return all.slice(Math.max(0, all.length - limit));
+
+    const delta = all.slice(index + 1);
+    return delta.length > limit ? delta.slice(delta.length - limit) : delta;
+  }
+
   async count(roomId: string): Promise<number> {
     return (await this.readAll(roomId)).length;
   }

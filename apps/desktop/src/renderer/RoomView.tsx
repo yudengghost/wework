@@ -9,7 +9,6 @@ interface RoomViewProps {
   messages: Message[];
   streams: Record<string, string>;
   running: Record<string, boolean>;
-  notices: string[];
   approvals: ApprovalEvent[];
   onSend: (body: string) => Promise<void>;
   onResolveApproval: (approvalId: string, approved: boolean) => void;
@@ -17,15 +16,18 @@ interface RoomViewProps {
 }
 
 export function RoomView(props: RoomViewProps) {
-  const { room, employees, messages, streams, running, notices, approvals } = props;
+  const { room, employees, messages, streams, running, approvals } = props;
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const members = employees.filter((employee) => room.memberIds.includes(employee.id));
+  const isDirect = room.kind === "direct";
+  const directPartner = isDirect ? members[0] : undefined;
   const nameOf = (employeeId: string): string =>
     employees.find((employee) => employee.id === employeeId)?.displayName ?? employeeId;
 
-  const trailingMention = /@([^\s@]*)$/.exec(draft);
+  // 单聊只有一个人，@ 是多余的：直接不提供补全。
+  const trailingMention = isDirect ? null : /@([^\s@]*)$/.exec(draft);
   const suggestions =
     trailingMention === null
       ? []
@@ -75,7 +77,9 @@ export function RoomView(props: RoomViewProps) {
       <div className="messages">
         {messages.length === 0 && (
           <div className="empty">
-            {`还没有消息。用 @ 指派任务，例如 “@${members[0]?.displayName ?? "小码"} 帮我改个 bug”。`}
+            {isDirect
+              ? `还没有聊过。直接说要 ${directPartner?.displayName ?? "这位员工"} 做什么就行。`
+              : `还没有消息。用 @ 指派任务，例如 “@${members[0]?.displayName ?? "小码"} 帮我改个 bug”。`}
           </div>
         )}
         {messages.map((message) => {
@@ -116,12 +120,6 @@ export function RoomView(props: RoomViewProps) {
         </div>
       ))}
 
-      {notices.map((notice, index) => (
-        <div key={`${notice}-${index}`} className="notice">
-          {notice}
-        </div>
-      ))}
-
       <div className="composer">
         {suggestions.length > 0 && (
           <div className="mentions">
@@ -150,7 +148,11 @@ export function RoomView(props: RoomViewProps) {
           <div className="grow">
             <textarea
               value={draft}
-              placeholder="输入消息，@ 员工指派任务；Enter 发送，Shift+Enter 换行"
+              placeholder={
+                isDirect
+                  ? `给 ${directPartner?.displayName ?? "员工"} 发消息…（Enter 发送，Shift+Enter 换行）`
+                  : "输入消息，@ 员工指派任务；Enter 发送，Shift+Enter 换行"
+              }
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Tab" && suggestions.length > 0) {

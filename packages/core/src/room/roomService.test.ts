@@ -13,6 +13,7 @@ import { EventBus } from "../events/eventBus";
 import { MemoryStore } from "../memory/memoryStore";
 import type { SkillInfo } from "../skills/skillCatalog";
 import { FileStore } from "../storage/fileStore";
+import { CursorStore } from "./cursorStore";
 import { MessageLog } from "./messageLog";
 import { RoomService, type RoomServiceEvents } from "./roomService";
 import { RoomStore } from "./roomStore";
@@ -64,6 +65,8 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
   await rooms.load();
   const messages = new MessageLog(store, workDir);
   const memory = new MemoryStore(store, workDir);
+  const cursors = new CursorStore(store, join(workDir, "cursors.json"));
+  await cursors.load();
   let skills: SkillInfo[] = [];
 
   const calls: Call[] = [];
@@ -138,6 +141,7 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     messages,
     events,
     memory,
+    cursors,
     skillsFor: async (employee: Employee) =>
       skills.filter((skill) => employee.skills.includes(skill.id)),
     createAdapter: async (employee: Employee): Promise<AdapterCreation> => ({
@@ -199,7 +203,7 @@ describe("RoomService", () => {
 
     expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id]);
     expect(harness.calls[0]?.prompt).toContain("看下这个 bug");
-    expect(harness.calls[0]?.prompt).toContain("<room_transcript>");
+    expect(harness.calls[0]?.prompt).toContain("<context>");
 
     const messages = await harness.service.listMessages(roomId);
     expect(messages.map((message) => message.sender.kind)).toEqual(["human", "employee"]);
@@ -344,7 +348,7 @@ describe("RoomService", () => {
     expect(await harness.service.listMessages(room.id)).toHaveLength(2);
   });
 
-  it("每次运行后写入一条记忆，并在下次注入到提示词里", async () => {
+  it("往来先进暂存区，不会直接变成长期记忆", async () => {
     const harness = await makeHarness();
     const { roomId, coder } = await seedTeam(harness);
     harness.setBehavior(() => ({ text: "已经把 README 的错别字改完了" }));
@@ -352,39 +356,82 @@ describe("RoomService", () => {
     await harness.service.submitHumanMessage(roomId, "@小码 改一下 README 的错别字");
     await harness.service.waitForIdle();
 
-    const entries = await harness.memory.list(coder.id);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.text).toContain("改一下 README 的错别字");
-    expect(entries[0]?.scope).toBe("group");
-
-    await harness.service.submitHumanMessage(roomId, "@小码 还有别的吗");
-    await harness.service.waitForIdle();
-
-    expect(harness.calls[1]?.prompt).toContain("<your_memory>");
-    expect(harness.calls[1]?.prompt).toContain("错别字");
+    expect(await harness.memory.countFacts(coder.id)).toBe(0);
+    const pending = await harness.memory.listPending(coder.id);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.text).toContain("改一下 README 的错别字");
+    expect(pending[0]?.scope).toBe("group");
   });
 
-  it("记忆条数到阈值后自动整理成一条摘要", async () => {
+  it("第二次运行只喂增量上下文，不重灌已经看过的历史", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+
+    await harness.service.submitHumanMessage(roomId, "@小码 第一件事：改错别字");
+    await harness.service.waitForIdle();
+    await harness.service.submitHumanMessage(roomId, "@小码 第二件事：加注释");
+    await harness.service.waitForIdle();
+
+    const second = harness.calls[1]?.prompt ?? "";
+    expect(second).toContain("<context>");
+    expect(second).toContain("第二件事：加注释");
+    expect(second).not.toContain("第一件事：改错别字");
+  });
+
+  it("长期记忆会被注入，且与上下文分开标注", async () => {
     const harness = await makeHarness();
     const { roomId, coder } = await seedTeam(harness);
-    await harness.config.update({
-      memory: { consolidateAfterEntries: 3, maxInjectedEntries: 1 },
-    });
-    harness.setBehavior((_request, displayName) =>
-      displayName === "小码" && _request.systemPrompt === "你是记忆整理器，只做压缩归纳。"
-        ? { text: "此前三次任务的摘要" }
+    await harness.memory.appendFact(coder.id, "约定：提交前必须先跑测试", "fact", roomId);
+
+    await harness.service.submitHumanMessage(roomId, "@小码 提交一下");
+    await harness.service.waitForIdle();
+
+    const prompt = harness.calls[0]?.prompt ?? "";
+    expect(prompt).toContain("<long_term_memory>");
+    expect(prompt).toContain("提交前必须先跑测试");
+    expect(prompt).toContain("<context>");
+  });
+
+  it("累计到阈值后归纳成长期记忆并清空暂存", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    await harness.config.update({ memory: { distillAfterPending: 2 } });
+    harness.setBehavior((request) =>
+      request.systemPrompt === "你是记忆整理器，只做归纳，不执行任何任务。"
+        ? { text: "- 用户要求提交前先跑测试\n- 项目用 pnpm 管理" }
         : { text: "活儿干完了" },
     );
 
-    for (let index = 0; index < 3; index += 1) {
+    for (let index = 0; index < 2; index += 1) {
       await harness.service.submitHumanMessage(roomId, `@小码 第 ${index + 1} 件事`);
       await harness.service.waitForIdle();
     }
 
-    const entries = await harness.memory.list(coder.id);
-    expect(entries.some((entry) => entry.kind === "digest")).toBe(true);
-    expect(entries.find((entry) => entry.kind === "digest")?.text).toBe("此前三次任务的摘要");
-    expect(entries.length).toBeLessThan(3);
+    const facts = await harness.memory.listFacts(coder.id);
+    expect(facts.map((fact) => fact.text)).toEqual([
+      "用户要求提交前先跑测试",
+      "项目用 pnpm 管理",
+    ]);
+    expect(await harness.memory.countPending(coder.id)).toBe(0);
+  });
+
+  it("归纳结果里没有值得记的内容时不会硬造记忆", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    await harness.config.update({ memory: { distillAfterPending: 2 } });
+    harness.setBehavior((request) =>
+      request.systemPrompt === "你是记忆整理器，只做归纳，不执行任何任务。"
+        ? { text: "无" }
+        : { text: "好的" },
+    );
+
+    for (let index = 0; index < 2; index += 1) {
+      await harness.service.submitHumanMessage(roomId, `@小码 闲聊 ${index + 1}`);
+      await harness.service.waitForIdle();
+    }
+
+    expect(await harness.memory.countFacts(coder.id)).toBe(0);
+    expect(await harness.memory.countPending(coder.id)).toBe(0);
   });
 
   it("启用的技能会以 SKILL.md 路径写进提示词", async () => {

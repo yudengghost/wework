@@ -31,9 +31,9 @@ describe("defaultConfig", () => {
       memory: {
         enabled: true,
         crossRoomRecall: true,
-        consolidateAfterEntries: 20,
-        maxEntriesPerEmployee: 200,
-        maxInjectedEntries: 8,
+        distillAfterPending: 6,
+        maxFacts: 60,
+        maxInjectedFacts: 6,
       },
       skills: { extraRoots: [], includeFrameworkSkills: true },
     });

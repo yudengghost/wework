@@ -4,53 +4,114 @@ import { createId } from "../domain/ids";
 import { DataParseError } from "../storage/errors";
 import type { TextFileStore } from "../storage/fileStore";
 
-export interface MemoryEntry {
+/**
+ * 长期记忆：归纳后的事实与摘要，跨会话存续。
+ * 与「上下文」（对话历史）是两回事——上下文由原生会话 + 增量消息负责，不落在这里。
+ */
+export interface MemoryFact {
   id: string;
-  /** exchange = 一次对话的浓缩；digest = 若干条整理后的摘要。 */
-  kind: "exchange" | "digest";
-  scope: "direct" | "group";
+  kind: "fact" | "digest";
+  text: string;
+  /** 这条记忆是从哪个房间学到的，用于「不跨房间回忆」的过滤。 */
+  roomId?: string;
+  createdAt: string;
+}
+
+/** 短期暂存：一次往来，等待归纳。归纳完成后清空，不会直接当记忆用。 */
+export interface PendingExchange {
+  id: string;
   roomId: string;
+  scope: "direct" | "group";
   text: string;
   createdAt: string;
 }
 
-export type NewMemoryEntry = Omit<MemoryEntry, "id" | "createdAt"> &
-  Partial<Pick<MemoryEntry, "createdAt">>;
-
-/**
- * 每个员工一份记忆日志：一行一条 JSON。
- * 整理会把最旧的若干条合并成一条 digest，因此需要重写文件而不是追加。
- */
 export class MemoryStore {
   constructor(
     private readonly store: TextFileStore,
     private readonly dataDir: string,
   ) {}
 
-  async append(employeeId: string, entry: NewMemoryEntry): Promise<MemoryEntry> {
-    const full: MemoryEntry = {
-      id: createId("mem"),
-      createdAt: entry.createdAt ?? new Date().toISOString(),
-      kind: entry.kind,
-      scope: entry.scope,
-      roomId: entry.roomId,
-      text: entry.text,
-    };
-    await this.store.appendLine(this.filePath(employeeId), JSON.stringify(full));
-    return full;
+  async listFacts(employeeId: string): Promise<MemoryFact[]> {
+    return this.readAll<MemoryFact>(this.factsPath(employeeId));
   }
 
-  async list(employeeId: string): Promise<MemoryEntry[]> {
-    const path = this.filePath(employeeId);
+  async countFacts(employeeId: string): Promise<number> {
+    return (await this.listFacts(employeeId)).length;
+  }
+
+  async recentFacts(employeeId: string, limit: number): Promise<MemoryFact[]> {
+    const all = await this.listFacts(employeeId);
+    return limit >= all.length ? all : all.slice(all.length - limit);
+  }
+
+  async appendFact(
+    employeeId: string,
+    text: string,
+    kind: MemoryFact["kind"] = "fact",
+    roomId?: string,
+  ): Promise<MemoryFact> {
+    const fact: MemoryFact = {
+      id: createId("mem"),
+      kind,
+      text,
+      roomId,
+      createdAt: new Date().toISOString(),
+    };
+    await this.store.appendLine(this.factsPath(employeeId), JSON.stringify(fact));
+    return fact;
+  }
+
+  async writeFacts(employeeId: string, facts: MemoryFact[]): Promise<void> {
+    await this.writeLines(
+      this.factsPath(employeeId),
+      facts.map((fact) => JSON.stringify(fact)),
+    );
+  }
+
+  async listPending(employeeId: string): Promise<PendingExchange[]> {
+    return this.readAll<PendingExchange>(this.pendingPath(employeeId));
+  }
+
+  async countPending(employeeId: string): Promise<number> {
+    return (await this.listPending(employeeId)).length;
+  }
+
+  async appendPending(
+    employeeId: string,
+    exchange: Omit<PendingExchange, "id" | "createdAt">,
+  ): Promise<PendingExchange> {
+    const entry: PendingExchange = {
+      id: createId("mem"),
+      createdAt: new Date().toISOString(),
+      roomId: exchange.roomId,
+      scope: exchange.scope,
+      text: exchange.text,
+    };
+    await this.store.appendLine(this.pendingPath(employeeId), JSON.stringify(entry));
+    return entry;
+  }
+
+  async clearPending(employeeId: string): Promise<void> {
+    await this.store.write(this.pendingPath(employeeId), "");
+  }
+
+  /** 清空该员工的全部记忆（长期 + 待归纳）。 */
+  async clear(employeeId: string): Promise<void> {
+    await this.store.write(this.factsPath(employeeId), "");
+    await this.clearPending(employeeId);
+  }
+
+  private async readAll<T>(path: string): Promise<T[]> {
     const raw = await this.store.read(path);
     if (raw === null) return [];
 
-    const entries: MemoryEntry[] = [];
+    const items: T[] = [];
     for (const [index, rawLine] of raw.split("\n").entries()) {
       const line = rawLine.trim();
       if (line === "") continue;
       try {
-        entries.push(JSON.parse(line) as MemoryEntry);
+        items.push(JSON.parse(line) as T);
       } catch (error) {
         throw new DataParseError(
           `记忆文件第 ${index + 1} 行不是合法 JSON`,
@@ -59,54 +120,18 @@ export class MemoryStore {
         );
       }
     }
-    return entries;
+    return items;
   }
 
-  async recent(employeeId: string, limit: number): Promise<MemoryEntry[]> {
-    const all = await this.list(employeeId);
-    return limit >= all.length ? all : all.slice(all.length - limit);
+  private async writeLines(path: string, lines: string[]): Promise<void> {
+    await this.store.write(path, lines.length === 0 ? "" : `${lines.join("\n")}\n`);
   }
 
-  async count(employeeId: string): Promise<number> {
-    return (await this.list(employeeId)).length;
-  }
-
-  /** 保留最新 keepLast 条，其余替换成一条摘要。 */
-  async consolidate(employeeId: string, keepLast: number, digestText: string): Promise<number> {
-    const all = await this.list(employeeId);
-    if (all.length <= keepLast) return 0;
-    const kept = all.slice(all.length - keepLast);
-    const absorbed = all.length - kept.length;
-    const digest: MemoryEntry = {
-      id: createId("mem"),
-      kind: "digest",
-      scope: kept[0]?.scope ?? "group",
-      roomId: kept[0]?.roomId ?? "",
-      text: digestText,
-      createdAt: new Date().toISOString(),
-    };
-    await this.rewrite(employeeId, [digest, ...kept]);
-    return absorbed;
-  }
-
-  /** 超过上限时从最旧处丢弃，保证文件不会无限增长。 */
-  async trim(employeeId: string, maxEntries: number): Promise<number> {
-    const all = await this.list(employeeId);
-    if (all.length <= maxEntries) return 0;
-    await this.rewrite(employeeId, all.slice(all.length - maxEntries));
-    return all.length - maxEntries;
-  }
-
-  async clear(employeeId: string): Promise<void> {
-    await this.rewrite(employeeId, []);
-  }
-
-  private async rewrite(employeeId: string, entries: MemoryEntry[]): Promise<void> {
-    const body = entries.map((entry) => JSON.stringify(entry)).join("\n");
-    await this.store.write(this.filePath(employeeId), body === "" ? "" : `${body}\n`);
-  }
-
-  private filePath(employeeId: string): string {
+  private factsPath(employeeId: string): string {
     return join(this.dataDir, "memory", `${employeeId}.jsonl`);
+  }
+
+  private pendingPath(employeeId: string): string {
+    return join(this.dataDir, "memory", `${employeeId}.pending.jsonl`);
   }
 }

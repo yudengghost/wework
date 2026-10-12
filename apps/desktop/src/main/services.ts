@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import {
   ConfigStore,
+  CursorStore,
   EmployeeStore,
   FileStore,
   MemoryStore,
@@ -56,6 +57,8 @@ export async function createServices(): Promise<AppServices> {
 
   const messages = new MessageLog(store, dataDir);
   const memory = new MemoryStore(store, dataDir);
+  const cursors = new CursorStore(store, join(dataDir, "cursors.json"));
+  await cursors.load();
   const skillFs = createSystemSkillFileSystem();
 
   const service = new RoomService({
@@ -64,6 +67,7 @@ export async function createServices(): Promise<AppServices> {
     rooms,
     messages,
     memory,
+    cursors,
     skillsFor: async (employee: Employee) => {
       const settings = config.get().skills;
       const catalog = await catalogSkills({

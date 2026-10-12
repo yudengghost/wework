@@ -2,7 +2,7 @@ import type { Employee, Message } from "@buddy/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent, type Bootstrap } from "./api";
-import { EmployeesPanel, PromptDialog, SettingsPanel } from "./Panels";
+import { CreateRoomDialog, EmployeesPanel, SettingsPanel } from "./Panels";
 import { RoomView } from "./RoomView";
 
 type Panel = "none" | "employees" | "settings";
@@ -17,12 +17,7 @@ export function App() {
   const [notices, setNotices] = useState<string[]>([]);
   const [approvals, setApprovals] = useState<ApprovalEvent[]>([]);
   const [panel, setPanel] = useState<Panel>("none");
-  const [dialog, setDialog] = useState<{
-    title: string;
-    label: string;
-    initial: string;
-    onSubmit: (value: string) => void;
-  } | null>(null);
+  const [createRoomOpen, setCreateRoomOpen] = useState(false);
 
   const roomRef = useRef<string | null>(null);
   const employeesRef = useRef<Employee[]>([]);
@@ -116,27 +111,7 @@ export function App() {
     };
   }, [labelOf, pushNotice]);
 
-  const createRoom = (): void => {
-    if (!boot) return;
-    const memberIds = boot.employees.map((employee) => employee.id);
-    setDialog({
-      title: "新建群聊房间",
-      label: "房间名称",
-      initial: "新房间",
-      onSubmit: (value) => {
-        setDialog(null);
-        const name = value.trim();
-        if (name === "") return;
-        void api
-          .createRoom(name, memberIds)
-          .then(async (room) => {
-            await reload();
-            setSelectedRoomId(room.id);
-          })
-          .catch((cause: unknown) => setError(String(cause)));
-      },
-    });
-  };
+  const createRoom = (): void => setCreateRoomOpen(true);
 
   /** 点员工名即进入单聊；已存在则复用同一个房间。 */
   const openDirect = (employeeId: string): void => {
@@ -235,7 +210,6 @@ export function App() {
             messages={messages}
             streams={streams}
             running={running}
-            notices={notices}
             approvals={approvals.filter((item) => item.roomId === selectedRoom.id)}
             onSend={async (body) => {
               await api.send(selectedRoom.id, body);
@@ -273,14 +247,31 @@ export function App() {
           onChanged={reload}
         />
       )}
-      {dialog && (
-        <PromptDialog
-          title={dialog.title}
-          label={dialog.label}
-          initial={dialog.initial}
-          onCancel={() => setDialog(null)}
-          onSubmit={dialog.onSubmit}
+      {createRoomOpen && (
+        <CreateRoomDialog
+          employees={boot.employees}
+          onCancel={() => setCreateRoomOpen(false)}
+          onSubmit={(name, memberIds) => {
+            setCreateRoomOpen(false);
+            void api
+              .createRoom(name, memberIds)
+              .then(async (room) => {
+                await reload();
+                setSelectedRoomId(room.id);
+              })
+              .catch((cause: unknown) => setError(String(cause)));
+          }}
         />
+      )}
+
+      {notices.length > 0 && (
+        <div className="toasts">
+          {notices.map((notice, index) => (
+            <div key={`${index}-${notice}`} className="toast">
+              {notice}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
