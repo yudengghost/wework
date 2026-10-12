@@ -153,5 +153,29 @@ describe.skipIf(!liveEnabled)("真机接力：员工把活交给另一位员工"
     expect(started).toContain(reviewer.id);
     expect(byReviewer.length).toBeGreaterThan(0);
     expect((byReviewer[0]?.body ?? "").trim().length).toBeGreaterThan(0);
+
+    // 第二轮：B 复核完并没有 @ 回 A。人类再问一句，A 是否能看到 B 的回复？
+    const reviewerReplyNeedle = (byReviewer[0]?.body ?? "").trim().slice(0, 15);
+    const authorSeenBefore = seen.filter((item) => item.employeeId === author.id).length;
+
+    await service.submitHumanMessage(room.id, "@撰写员 复核员那边怎么说的？一句话概括。");
+    await service.waitForIdle();
+
+    const authorPrompts = seen.filter((item) => item.employeeId === author.id);
+    const secondPrompt = authorPrompts.at(-1)?.prompt ?? "";
+    const transcript2 = await messages.readAll(room.id);
+
+    console.log(`[handoff] A 第二次运行的提示词长度=${secondPrompt.length}`);
+    console.log(
+      `[handoff] 提示词含 B 的回复原文=${secondPrompt.includes(reviewerReplyNeedle)}（needle=${JSON.stringify(reviewerReplyNeedle)}）`,
+    );
+    console.log(`[handoff] 提示词含「复核员」署名=${secondPrompt.includes("复核员")}`);
+    console.log(`[handoff] A 第二次回复=${JSON.stringify(transcript2.at(-1)?.body.slice(0, 160))}`);
+
+    // A 确实又跑了一次
+    expect(authorPrompts.length).toBe(authorSeenBefore + 1);
+    // 关键：B 的回复通过增量上下文进入了 A 的视野，并带上发送者名字
+    expect(secondPrompt).toContain(reviewerReplyNeedle);
+    expect(secondPrompt).toContain("复核员");
   }, 600000);
 });
