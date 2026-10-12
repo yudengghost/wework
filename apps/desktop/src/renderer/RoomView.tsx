@@ -18,6 +18,8 @@ interface RoomViewProps {
   onDeleteRoom: () => void;
   /** 房间里已经没有在册员工（例如员工已被移除）：只读，保留历史。 */
   readOnly?: boolean;
+  /** 只读时提供的补救入口：新建员工并接续这段历史。 */
+  onAdopt?: () => void;
 }
 
 export function RoomView(props: RoomViewProps) {
@@ -230,7 +232,17 @@ export function RoomView(props: RoomViewProps) {
       <div className="composer">
         {props.readOnly && (
           <div className="readonly-hint">
-            房间里已经没有在册员工，这里只保留历史记录。想继续对话，去「员工管理」恢复或新建一名员工。
+            <div>
+              房间里已经没有在册员工，这里只保留历史记录。
+              {props.onAdopt
+                ? "可以新建一名员工接续这段历史，也可以去「员工管理」恢复已移除的员工。"
+                : ""}
+            </div>
+            {props.onAdopt && (
+              <button className="primary" onClick={props.onAdopt}>
+                新建员工并接续这段历史
+              </button>
+            )}
           </div>
         )}
         {suggestions.length > 0 && (

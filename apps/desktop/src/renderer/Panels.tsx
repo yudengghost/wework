@@ -39,6 +39,75 @@ export function ConfirmDialog({
   );
 }
 
+/**
+ * 把一段没有在册员工的会话接续到一名新建员工上。
+ * 用于旧版本硬删除留下的孤儿会话——那些员工的档案已经不存在，无法「恢复」。
+ */
+export function AdoptDialog({
+  roomName,
+  onCancel,
+  onSubmit,
+}: {
+  roomName: string;
+  onCancel: () => void;
+  onSubmit: (name: string, framework: Framework, mode: PermissionMode) => void;
+}) {
+  const [name, setName] = useState("新员工");
+  const [framework, setFramework] = useState<Framework>("codex");
+  const [mode, setMode] = useState<PermissionMode>("workspace-write");
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal" style={{ width: 460 }} onClick={(event) => event.stopPropagation()}>
+        <h2>接续「{roomName}」这段历史</h2>
+        <p className="sub">
+          会新建一名员工并把它设为这个会话的成员，之前的聊天记录全部保留。
+        </p>
+        <div className="field">
+          <label>员工名</label>
+          <input autoFocus value={name} onChange={(event) => setName(event.target.value)} />
+        </div>
+        <div className="field">
+          <label>框架</label>
+          <select
+            value={framework}
+            onChange={(event) => setFramework(event.target.value as Framework)}
+          >
+            {frameworks.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>权限</label>
+          <select
+            value={mode}
+            onChange={(event) => setMode(event.target.value as PermissionMode)}
+          >
+            {permissionModes.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="row">
+          <button
+            className="primary"
+            disabled={name.trim() === ""}
+            onClick={() => onSubmit(name.trim(), framework, mode)}
+          >
+            创建并接续
+          </button>
+          <button onClick={onCancel}>取消</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface CreateRoomDialogProps {
   employees: Bootstrap["employees"];
   onCancel: () => void;

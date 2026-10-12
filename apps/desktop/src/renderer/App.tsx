@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent, type Bootstrap } from "./api";
 import {
+  AdoptDialog,
   ConfirmDialog,
   CreateRoomDialog,
   EmployeesPanel,
@@ -37,6 +38,7 @@ export function App() {
   const [panel, setPanel] = useState<Panel>("none");
   const [createRoomOpen, setCreateRoomOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
+  const [adoptRoom, setAdoptRoom] = useState<{ id: string; name: string } | null>(null);
 
   const roomRef = useRef<string | null>(null);
   const employeesRef = useRef<Employee[]>([]);
@@ -357,6 +359,13 @@ export function App() {
             readOnly={!selectedRoom.memberIds.some((id) =>
               boot.employees.some((item) => item.id === id),
             )}
+            onAdopt={
+              selectedRoom.memberIds.some((id) =>
+                boot.employees.some((item) => item.id === id),
+              )
+                ? undefined
+                : () => setAdoptRoom({ id: selectedRoom.id, name: selectedRoom.name })
+            }
           />
         ) : (
           <div className="home">
@@ -483,6 +492,27 @@ export function App() {
                 pushNotice(`已解散「${target.name}」`);
               })
               .catch((cause: unknown) => setError(String(cause)));
+          }}
+        />
+      )}
+
+      {adoptRoom && (
+        <AdoptDialog
+          roomName={adoptRoom.name}
+          onCancel={() => setAdoptRoom(null)}
+          onSubmit={(name, framework, mode) => {
+            const target = adoptRoom;
+            setAdoptRoom(null);
+            void (async () => {
+              const employee = await api.createEmployee({
+                displayName: name,
+                framework,
+                permissionMode: mode,
+              });
+              await api.updateRoom(target.id, { memberIds: [employee.id] });
+              await reload();
+              pushNotice(`已创建「${name}」并接续这段历史`);
+            })().catch((cause: unknown) => setError(String(cause)));
           }}
         />
       )}
