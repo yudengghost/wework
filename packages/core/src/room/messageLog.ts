@@ -5,6 +5,15 @@ import { DataParseError } from "../storage/errors";
 import type { TextFileStore } from "../storage/fileStore";
 
 export class MessageLog {
+  /**
+   * 已解析消息的进程内缓存。
+   *
+   * 消息日志是只追加的 JSONL，但每次读取都要把整份文件 JSON.parse 一遍；
+   * 取上下文、算条数、界面刷新都走这里，长会话下这会成为主要开销。
+   * 因此解析一次之后按增量维护；只有缓存不存在时才回落到读文件。
+   */
+  private readonly cache = new Map<string, Message[]>();
+
   constructor(
     private readonly store: TextFileStore,
     private readonly dataDir: string,
@@ -13,12 +22,21 @@ export class MessageLog {
   async append(message: Message): Promise<void> {
     const parsed = messageSchema.parse(message);
     await this.store.appendLine(this.filePath(parsed.roomId), JSON.stringify(parsed));
+    // 只更新已存在的缓存：缓存不存在时不能凭空新建，否则会丢掉文件里已有的历史。
+    const cached = this.cache.get(parsed.roomId);
+    if (cached) cached.push(parsed);
   }
 
   async readAll(roomId: string): Promise<Message[]> {
+    const cached = this.cache.get(roomId);
+    if (cached) return [...cached];
+
     const path = this.filePath(roomId);
     const raw = await this.store.read(path);
-    if (raw === null) return [];
+    if (raw === null) {
+      this.cache.set(roomId, []);
+      return [];
+    }
 
     const messages: Message[] = [];
     for (const [index, rawLine] of raw.split("\n").entries()) {
@@ -45,7 +63,8 @@ export class MessageLog {
       }
       messages.push(parsed.data);
     }
-    return messages;
+    this.cache.set(roomId, messages);
+    return [...messages];
   }
 
   async readRecent(roomId: string, limit: number): Promise<Message[]> {
@@ -79,6 +98,7 @@ export class MessageLog {
 
   /** 解散房间时连同该房间的消息一起删除。 */
   async removeRoom(roomId: string): Promise<void> {
+    this.cache.delete(roomId);
     await this.store.remove(join(this.dataDir, "rooms", roomId));
   }
 

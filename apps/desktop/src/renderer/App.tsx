@@ -52,7 +52,11 @@ export function App() {
     try {
       const next = await api.bootstrap();
       setBoot(next);
-      setSelectedRoomId((current) => current ?? next.rooms[0]?.id ?? null);
+      // 只在「当前选中的房间仍然存在」时保留选择，否则回到主页。
+      // 之前会兜底选中 rooms[0]，导致没有员工时一进来就停在某个历史会话上。
+      setSelectedRoomId((current) =>
+        current && next.rooms.some((room) => room.id === current) ? current : null,
+      );
       setError(null);
     } catch (cause) {
       setError(String(cause));
@@ -342,24 +346,67 @@ export function App() {
             )}
           />
         ) : (
-          <EmptyState
-            icon={<SparkIcon size={22} />}
-            title={boot.employees.length === 0 ? "先创建一名员工" : "选一个会话开始"}
-          >
-            {boot.employees.length === 0 ? (
-              <>
-                员工是真正会干活的 agent——它能读写文件、执行命令。
-                <br />
-                左下角 <UsersIcon size={13} /> 进入员工管理，创建一名即可。
-              </>
-            ) : (
-              <>
-                点左侧「单聊」里的员工直接私聊，不需要 @；
-                <br />
-                或点左下角 <PlusIcon size={13} /> 建一个群聊，把多位员工拉进来协作。
-              </>
-            )}
-          </EmptyState>
+          <div className="home">
+            <div className="home-hero">
+              <div className="mark lg">
+                <SparkIcon size={22} />
+              </div>
+              <h2>Buddy</h2>
+              <p>
+                本地多 Agent 协作。这里的员工是真正会干活的 agent——能读写文件、执行命令，
+                各有一位独立的长期记忆。
+              </p>
+            </div>
+
+            <div className="home-actions">
+              <button className="primary" onClick={() => setPanel("employees")}>
+                <UsersIcon size={16} />
+                {boot.employees.length === 0 ? "创建第一名员工" : "员工管理"}
+              </button>
+              <button onClick={createRoom} disabled={boot.employees.length === 0}>
+                <PlusIcon size={16} />
+                新建群聊
+              </button>
+              <button onClick={() => setPanel("settings")}>
+                <GearIcon size={16} />
+                设置与主题
+              </button>
+            </div>
+
+            <div className="home-stats">
+              {(
+                [
+                  ["员工", boot.employees.length],
+                  ["群聊", groupRooms.length],
+                  ["单聊", directRooms.length],
+                  ["技能", boot.skills.length],
+                ] as const
+              ).map(([label, value]) => (
+                <div key={label} className="home-stat">
+                  <strong>{value}</strong>
+                  <span>{label}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="home-row">
+              {Object.entries(boot.frameworks).map(([name, status]) => (
+                <span
+                  key={name}
+                  className={`tag ${status.status === "found" ? "ok" : "bad"}`}
+                  title={status.detail}
+                >
+                  {name} {status.status === "found" ? "已就绪" : "未找到"}
+                </span>
+              ))}
+            </div>
+
+            <p className="home-hint">
+              {boot.employees.length === 0
+                ? "还没有员工。先创建一名：填个名字、选框架（下拉里会显示是否已就绪）就能开始。"
+                : "单聊直接说需求就行，不需要 @；群聊里用 @名字 指派任务，员工之间也能互相 @ 接力。"}
+            </p>
+          </div>
         )}
         {error && <div className="notice">{error}</div>}
       </main>

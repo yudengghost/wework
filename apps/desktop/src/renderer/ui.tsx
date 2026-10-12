@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 /**
  * 内联 SVG 图标集：不引第三方图标库，统一 1.7px 描边 + 圆头，跟着 currentColor 走。
@@ -201,5 +201,50 @@ export function Segmented<T extends string>({
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * 侧栏可折叠分区。展开状态记在 localStorage，重启后保持。
+ */
+export function Section({
+  title,
+  count,
+  storageKey,
+  children,
+}: {
+  title: string;
+  count?: number;
+  storageKey: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(storageKey) !== "0";
+    } catch {
+      return true;
+    }
+  });
+
+  const toggle = (): void => {
+    setOpen((prev) => {
+      try {
+        localStorage.setItem(storageKey, prev ? "0" : "1");
+      } catch {
+        // 隐私模式下写不了 localStorage，忽略即可。
+      }
+      return !prev;
+    });
+  };
+
+  return (
+    <section className="nav-section">
+      <button className="nav-section-head" onClick={toggle} aria-expanded={open}>
+        <span className={open ? "chevron open" : "chevron"} />
+        {title}
+        {count !== undefined && <span className="count-pill">{count}</span>}
+      </button>
+      {open && <div className="nav-section-body">{children}</div>}
+    </section>
   );
 }

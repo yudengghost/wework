@@ -15,10 +15,13 @@ import {
   createSystemSkillFileSystem,
   createSystemEnvironment,
   resolveLauncher,
+  catalogSkills as scanSkills,
   type AdapterCreation,
   type Employee,
   type Framework,
   type LauncherResolution,
+  type SkillInfo,
+  type SkillsSettings,
 } from "@buddy/core";
 import { app } from "electron";
 
@@ -60,8 +63,6 @@ export async function createServices(): Promise<AppServices> {
   const memory = new MemoryStore(store, dataDir);
   const cursors = new CursorStore(store, join(dataDir, "cursors.json"));
   await cursors.load();
-  const skillFs = createSystemSkillFileSystem();
-
   const service = new RoomService({
     config,
     employees,
@@ -70,14 +71,7 @@ export async function createServices(): Promise<AppServices> {
     memory,
     cursors,
     skillsFor: async (employee: Employee) => {
-      const settings = config.get().skills;
-      const catalog = await catalogSkills({
-        dataDir,
-        extraRoots: settings.extraRoots,
-        includeFrameworkSkills: settings.includeFrameworkSkills,
-        env: process.env,
-        fs: skillFs,
-      });
+      const catalog = await loadSkillCatalog(dataDir, config.get().skills);
       return catalog.filter((skill) => employee.skills.includes(skill.id));
     },
     createAdapter: (employee: Employee): Promise<AdapterCreation> =>
@@ -97,16 +91,39 @@ export async function createServices(): Promise<AppServices> {
   };
 }
 
-/** 列出当前可见的全部技能，供员工编辑界面勾选。 */
-export async function listSkills(services: AppServices) {
-  const settings = services.config.get().skills;
-  return catalogSkills({
-    dataDir: services.dataDir,
+/**
+ * 技能目录缓存。
+ *
+ * 扫描一次要 readdir + 逐技能 readFile（32 个技能就是 32 次读盘），而每次运行都会用到，
+ * 所以按「数据目录 + 设置」做键缓存，设置变了才重扫。
+ */
+let skillCache: { key: string; value: SkillInfo[] } | null = null;
+
+export async function loadSkillCatalog(
+  dataDir: string,
+  settings: SkillsSettings,
+): Promise<SkillInfo[]> {
+  const key = [
+    dataDir,
+    settings.includeFrameworkSkills ? "1" : "0",
+    ...settings.extraRoots,
+  ].join("|");
+  if (skillCache?.key === key) return skillCache.value;
+
+  const value = await scanSkills({
+    dataDir,
     extraRoots: settings.extraRoots,
     includeFrameworkSkills: settings.includeFrameworkSkills,
     env: process.env,
     fs: createSystemSkillFileSystem(),
   });
+  skillCache = { key, value };
+  return value;
+}
+
+/** 列出当前可见的全部技能，供员工编辑界面勾选。 */
+export async function listSkills(services: AppServices) {
+  return loadSkillCatalog(services.dataDir, services.config.get().skills);
 }
 
 /** 探测两个 CLI 框架当前是否可用，供 UI 显示「已就绪 / 未找到」。 */
