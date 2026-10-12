@@ -34,6 +34,8 @@ interface Harness {
   replies: Map<string, string>;
   setBehavior: (value: Behavior) => void;
   maxConcurrency: () => number;
+  maxPerEmployee: (employeeId: string) => number;
+  cursors: CursorStore;
   memory: MemoryStore;
   setSkills: (value: SkillInfo[]) => void;
 }
@@ -76,6 +78,8 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     ((request) => ({ text: replies.get(request.prompt) ?? "收到" }));
   let concurrency = 0;
   let maxConcurrency = 0;
+  const activeByEmployee = new Map<string, number>();
+  const maxByEmployee = new Map<string, number>();
 
   const makeAdapter = (employeeId: string, displayName: string): AgentAdapter => ({
     framework: "codex",
@@ -90,6 +94,9 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
       });
       concurrency += 1;
       maxConcurrency = Math.max(maxConcurrency, concurrency);
+      const active = (activeByEmployee.get(employeeId) ?? 0) + 1;
+      activeByEmployee.set(employeeId, active);
+      maxByEmployee.set(employeeId, Math.max(maxByEmployee.get(employeeId) ?? 0, active));
       const outcome = behavior(request, displayName);
       try {
         if (outcome.delayMs) {
@@ -129,6 +136,7 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
         };
       } finally {
         concurrency -= 1;
+        activeByEmployee.set(employeeId, (activeByEmployee.get(employeeId) ?? 1) - 1);
       }
     },
   });
@@ -162,6 +170,8 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
       behavior = value;
     },
     maxConcurrency: () => maxConcurrency,
+    maxPerEmployee: (employeeId) => maxByEmployee.get(employeeId) ?? 0,
+    cursors,
     memory,
     setSkills: (value) => {
       skills = value;
@@ -453,5 +463,90 @@ describe("RoomService", () => {
 
     expect(harness.calls[0]?.prompt).toContain("<available_skills>");
     expect(harness.calls[0]?.prompt).toContain("C:\\skills\\imagegen\\SKILL.md");
+  });
+
+  it("同一员工的两个任务严格串行，不同员工之间仍可并行", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder, reviewer } = await seedTeam(harness);
+    await harness.config.update({ scheduler: { maxConcurrentRuns: 4 } });
+    harness.setBehavior(() => ({ text: "干完了", delayMs: 120 }));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 第一件");
+    await harness.service.submitHumanMessage(roomId, "@小码 第二件");
+    await harness.service.submitHumanMessage(roomId, "@小测 复核一下");
+    await harness.service.waitForIdle();
+
+    expect(harness.maxPerEmployee(coder.id)).toBe(1);
+    expect(harness.calls.filter((call) => call.employeeId === coder.id)).toHaveLength(2);
+    expect(harness.maxConcurrency()).toBeGreaterThan(1);
+    expect(harness.calls.some((call) => call.employeeId === reviewer.id)).toBe(true);
+  });
+
+  it("员工 @ 自己不会产生自接力空转", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    harness.setBehavior(() => ({ text: "@小码 我再检查一遍" }));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id]);
+  });
+
+  it("@ 不在房间里的员工不会被投递", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    const outsider = await harness.employees.create({
+      displayName: "局外人",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "outsider"),
+      stateDir: join(workDir, "state", "outsider"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+
+    await harness.service.submitHumanMessage(roomId, "@局外人 帮个忙");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls).toEqual([]);
+    expect(harness.employees.get(outsider.id)).toBeTruthy();
+  });
+
+  it("零成员房间不会触发任何运行", async () => {
+    const harness = await makeHarness();
+    const room = await harness.rooms.create({ name: "空房间", memberIds: [] });
+
+    await harness.service.submitHumanMessage(room.id, "@all 有人在吗");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls).toEqual([]);
+    expect(await harness.service.listMessages(room.id)).toHaveLength(1);
+  });
+
+  it("员工没有产出文本时不落消息、不记记忆，但游标仍推进", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    harness.setBehavior(() => ({ text: "   " }));
+
+    const human = await harness.service.submitHumanMessage(roomId, "@小码 干点什么");
+    await harness.service.waitForIdle();
+
+    expect(await harness.service.listMessages(roomId)).toHaveLength(1);
+    expect(await harness.memory.countPending(coder.id)).toBe(0);
+    expect(harness.cursors.get(coder.id, roomId)).toBe(human.id);
+  });
+
+  it("被取消的运行不推进游标，下次仍能看到那条消息", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    harness.setBehavior(() => ({ text: "不该产出", delayMs: 30000 }));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 长任务");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    harness.service.stopAll();
+    await harness.service.waitForIdle();
+
+    expect(harness.cursors.get(coder.id, roomId)).toBeUndefined();
+    expect(await harness.memory.countPending(coder.id)).toBe(0);
   });
 });

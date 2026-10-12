@@ -88,11 +88,12 @@ export class RoomService {
   private readonly now: () => Date;
   private readonly queue: RunTask[] = [];
   private readonly running = new Set<Promise<void>>();
+  /** 正在干活的员工；同一位员工同时只允许一个 run。 */
+  private readonly busyEmployees = new Set<string>();
   private readonly activeRuns = new Map<string, AbortController>();
   private readonly roomRunCounts = new Map<string, number>();
   private readonly recentTriggers = new Map<string, number>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
-  private readonly background = new Set<Promise<void>>();
   private drainPromise: Promise<void> | null = null;
 
   constructor(private readonly deps: RoomServiceDeps) {
@@ -166,27 +167,16 @@ export class RoomService {
     for (;;) {
       this.kickDrain();
       const draining = this.drainPromise;
-      const pending = [...this.background];
 
       if (draining) await draining;
-      if (pending.length > 0) {
-        await Promise.all(pending.map((promise) => promise.catch(() => undefined)));
-      }
 
       if (
         this.queue.length === 0 &&
-        this.running.size === 0 &&
-        this.background.size === 0
+        this.running.size === 0
       ) {
         return;
       }
     }
-  }
-
-  /** 记忆写入/整理这类收尾工作也纳入 idle 判定，保证测试与 UI 都能等到真正结束。 */
-  private track(promise: Promise<void>): void {
-    this.background.add(promise);
-    void promise.finally(() => this.background.delete(promise));
   }
 
   // ---- 内部 ----
@@ -215,7 +205,11 @@ export class RoomService {
         for (const memberId of room.memberIds) {
           if (memberId !== senderEmployeeId) targets.add(memberId);
         }
-      } else if (room.memberIds.includes(mention.employeeId)) {
+      } else if (
+        room.memberIds.includes(mention.employeeId) &&
+        mention.employeeId !== senderEmployeeId
+      ) {
+        // 员工 @ 自己会造成自接力空转，直接忽略。
         targets.add(mention.employeeId);
       }
     }
@@ -295,11 +289,21 @@ export class RoomService {
         await Promise.race([...this.running]);
         continue;
       }
-      const task = this.queue.shift();
-      if (!task) break;
+
+      // 只挑「员工当前空闲」的任务；同一位员工的任务严格串行，避免共用一个会话并发跑。
+      const index = this.queue.findIndex((task) => !this.busyEmployees.has(task.employeeId));
+      if (index === -1) {
+        if (this.running.size === 0) break;
+        await Promise.race([...this.running]);
+        continue;
+      }
+
+      const task = this.queue.splice(index, 1)[0] as RunTask;
+      this.busyEmployees.add(task.employeeId);
       const promise = this.executeRun(task)
         .catch(() => undefined)
         .finally(() => {
+          this.busyEmployees.delete(task.employeeId);
           this.running.delete(promise);
         });
       this.running.add(promise);
@@ -386,7 +390,8 @@ export class RoomService {
         runId: task.runId,
         ok: true,
       });
-      this.scheduleMemory(task, employee, body);
+      // 记忆写入与归纳都算这位员工仍在忙：串在本次运行之后，不会和下一次运行撞车。
+      await this.recordMemory(task, employee, body);
     } catch (error) {
       this.events.emit("run-finished", {
         roomId: task.roomId,
@@ -505,13 +510,6 @@ export class RoomService {
     ].join("\n");
   }
 
-  private scheduleMemory(task: RunTask, employee: Employee, replyBody: string): void {
-    const memory = this.deps.memory;
-    const settings = this.deps.config.get().memory;
-    if (!memory || !settings.enabled) return;
-    this.track(this.recordMemory(task, employee, replyBody));
-  }
-
   /**
    * 一次往来先进暂存区，并推进上下文游标。
    * 只有归纳之后的内容才会变成长期记忆——原始流水不是记忆。
@@ -524,15 +522,20 @@ export class RoomService {
     const memory = this.deps.memory;
     if (!memory) return;
     const settings = this.deps.config.get().memory;
+    if (!settings.enabled) return;
     const room = this.deps.rooms.get(task.roomId);
 
     try {
       await this.deps.cursors.set(employee.id, task.roomId, task.trigger.id);
-      await memory.appendPending(employee.id, {
-        scope: room?.kind === "direct" ? "direct" : "group",
-        roomId: task.roomId,
-        text: `任务：${truncate(oneLine(task.trigger.body), 200)} → 我的处理：${truncate(oneLine(replyBody), 300)}`,
-      });
+
+      // 没有产出就不进暂存区：空往来会把归纳阈值白白消耗掉。
+      if (replyBody.trim() !== "") {
+        await memory.appendPending(employee.id, {
+          scope: room?.kind === "direct" ? "direct" : "group",
+          roomId: task.roomId,
+          text: `任务：${truncate(oneLine(task.trigger.body), 200)} → 我的处理：${truncate(oneLine(replyBody), 300)}`,
+        });
+      }
 
       if ((await memory.countPending(employee.id)) >= settings.distillAfterPending) {
         await this.distill(employee);

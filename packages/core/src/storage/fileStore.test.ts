@@ -73,4 +73,16 @@ describe("FileStore", () => {
     expect(await store.exists(file)).toBe(false);
     await expect(store.remove(file)).resolves.toBeUndefined();
   });
+
+  it("并发写同一路径时按调用顺序落盘，最终是最新内容且不留临时文件", async () => {
+    const store = new FileStore();
+    const file = join(root, "race.json");
+
+    await Promise.all(
+      Array.from({ length: 20 }, (_item, index) => store.write(file, `v${index + 1}`)),
+    );
+
+    expect(await store.read(file)).toBe("v20");
+    expect(await readdir(root)).toEqual(["race.json"]);
+  });
 });

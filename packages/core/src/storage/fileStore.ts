@@ -21,6 +21,15 @@ function isNotFound(error: unknown): boolean {
 }
 
 export class FileStore implements TextFileStore {
+  /**
+   * 按路径串行化写入。
+   *
+   * 「写临时文件再 rename」保证了单个文件的原子性，但并发写同一路径时，
+   * 后完成 rename 的那个不一定是最新内容——会丢更新（例如两名员工同时回写档案）。
+   * 这里按路径排队，保证同一文件的多次写入严格按调用顺序落盘。
+   */
+  private readonly writeChains = new Map<string, Promise<void>>();
+
   async ensureDir(dir: string): Promise<void> {
     await mkdir(dir, { recursive: true });
   }
@@ -36,10 +45,17 @@ export class FileStore implements TextFileStore {
 
   /** 先写临时文件再 rename，避免进程中断留下半截文件。 */
   async write(path: string, contents: string): Promise<void> {
-    await this.ensureDir(dirname(path));
-    const tmpPath = `${path}.${randomUUID()}.tmp`;
-    await writeFile(tmpPath, contents, "utf8");
-    await rename(tmpPath, path);
+    const previous = this.writeChains.get(path) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      await this.ensureDir(dirname(path));
+      const tmpPath = `${path}.${randomUUID()}.tmp`;
+      await writeFile(tmpPath, contents, "utf8");
+      await rename(tmpPath, path);
+    });
+    // 记录链尾但要吞掉错误，否则一次失败会让后续写入永远被拒绝；
+    // 调用方仍然能通过 next 拿到真实结果。
+    this.writeChains.set(path, next.catch(() => undefined));
+    await next;
   }
 
   async appendLine(path: string, line: string): Promise<void> {
