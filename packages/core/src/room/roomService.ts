@@ -5,6 +5,8 @@ import { createId } from "../domain/ids";
 import type { Employee, Mention, Message, Room } from "../domain/schema";
 import type { EmployeeStore } from "../employee/employeeStore";
 import { EventBus } from "../events/eventBus";
+import type { MemoryStore } from "../memory/memoryStore";
+import type { SkillInfo } from "../skills/skillCatalog";
 import { parseMentions } from "./mentions";
 import type { MessageLog } from "./messageLog";
 import type { RoomStore } from "./roomStore";
@@ -30,6 +32,9 @@ export interface RoomServiceDeps {
   rooms: RoomStore;
   messages: MessageLog;
   createAdapter: (employee: Employee) => Promise<AdapterCreation>;
+  memory?: MemoryStore;
+  /** 该员工启用的技能，用于在提示词里告诉它有哪些能力可用。 */
+  skillsFor?: (employee: Employee) => Promise<SkillInfo[]>;
   events?: EventBus<RoomServiceEvents>;
   now?: () => Date;
 }
@@ -52,6 +57,14 @@ interface PendingApproval {
   targetId: string;
 }
 
+function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}…`;
+}
+
+function oneLine(text: string): string {
+  return text.replace(/\s*\n\s*/g, " / ").trim();
+}
+
 /**
  * 房间调度器：消息进、员工跑、回复回房间，并负责所有刹车。
  *
@@ -67,6 +80,7 @@ export class RoomService {
   private readonly roomRunCounts = new Map<string, number>();
   private readonly recentTriggers = new Map<string, number>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
+  private readonly background = new Set<Promise<void>>();
   private drainPromise: Promise<void> | null = null;
 
   constructor(private readonly deps: RoomServiceDeps) {
@@ -96,7 +110,11 @@ export class RoomService {
     });
 
     const policy = this.deps.config.get().policy.humanMentionsEmployee;
-    const targets = this.expandTargets(room, parsed.mentions, null);
+    let targets = this.expandTargets(room, parsed.mentions, null);
+    if (room.kind === "direct" && targets.length === 0) {
+      // 单聊不需要 @：房间里只有一名员工，默认就是它。
+      targets = room.memberIds.slice(0, 1);
+    }
     const turn: TurnBudget = { remainingRuns: this.deps.config.get().scheduler.maxRunsPerTurn };
 
     for (const employeeId of targets) {
@@ -135,10 +153,28 @@ export class RoomService {
   async waitForIdle(): Promise<void> {
     for (;;) {
       this.kickDrain();
-      const current = this.drainPromise;
-      if (current) await current;
-      if (this.queue.length === 0 && this.running.size === 0) return;
+      const draining = this.drainPromise;
+      const pending = [...this.background];
+
+      if (draining) await draining;
+      if (pending.length > 0) {
+        await Promise.all(pending.map((promise) => promise.catch(() => undefined)));
+      }
+
+      if (
+        this.queue.length === 0 &&
+        this.running.size === 0 &&
+        this.background.size === 0
+      ) {
+        return;
+      }
     }
+  }
+
+  /** 记忆写入/整理这类收尾工作也纳入 idle 判定，保证测试与 UI 都能等到真正结束。 */
+  private track(promise: Promise<void>): void {
+    this.background.add(promise);
+    void promise.finally(() => this.background.delete(promise));
   }
 
   // ---- 内部 ----
@@ -338,6 +374,7 @@ export class RoomService {
         runId: task.runId,
         ok: true,
       });
+      this.scheduleMemory(task, employee, body);
     } catch (error) {
       this.events.emit("run-finished", {
         roomId: task.roomId,
@@ -395,18 +432,135 @@ export class RoomService {
       .map((message) => `${this.labelOf(message)}: ${message.body}`)
       .join("\n");
     const from = this.labelOf(task.trigger);
+    const memory = await this.memoryBlock(task, employee);
+    const skills = await this.skillBlock(employee);
 
     return [
       "以下是房间最近的对话记录：",
       "<room_transcript>",
       lines,
       "</room_transcript>",
+      ...(memory === "" ? [] : ["", memory]),
+      ...(skills === "" ? [] : ["", skills]),
       "",
       `现在轮到你，你是「${employee.displayName}」。请直接回复下面这条消息：`,
       `<message from="${from}">`,
       task.trigger.body,
       "</message>",
     ].join("\n");
+  }
+
+  private async memoryBlock(task: RunTask, employee: Employee): Promise<string> {
+    const memory = this.deps.memory;
+    const settings = this.deps.config.get().memory;
+    if (!memory || !settings.enabled) return "";
+
+    const recent = await memory.recent(employee.id, settings.maxInjectedEntries);
+    const entries = settings.crossRoomRecall
+      ? recent
+      : recent.filter((entry) => entry.roomId === task.roomId);
+    if (entries.length === 0) return "";
+
+    return [
+      "<your_memory>",
+      "（你的长期记忆，供参考，不必逐条回应）",
+      ...entries.map((entry) => `- [${entry.kind}] ${oneLine(entry.text)}`),
+      "</your_memory>",
+    ].join("\n");
+  }
+
+  private async skillBlock(employee: Employee): Promise<string> {
+    if (!this.deps.skillsFor) return "";
+    const skills = await this.deps.skillsFor(employee);
+    if (skills.length === 0) return "";
+
+    return [
+      "<available_skills>",
+      "以下技能已启用。任务匹配时，先读取对应的 SKILL.md 再动手：",
+      ...skills.map(
+        (skill) =>
+          `- ${skill.id}${skill.description ? `：${skill.description}` : ""}（${skill.entryPath}）`,
+      ),
+      "</available_skills>",
+    ].join("\n");
+  }
+
+  private scheduleMemory(task: RunTask, employee: Employee, replyBody: string): void {
+    const memory = this.deps.memory;
+    const settings = this.deps.config.get().memory;
+    if (!memory || !settings.enabled) return;
+    this.track(this.recordMemory(task, employee, replyBody));
+  }
+
+  private async recordMemory(
+    task: RunTask,
+    employee: Employee,
+    replyBody: string,
+  ): Promise<void> {
+    const memory = this.deps.memory;
+    if (!memory) return;
+    const settings = this.deps.config.get().memory;
+    const room = this.deps.rooms.get(task.roomId);
+
+    try {
+      await memory.append(employee.id, {
+        kind: "exchange",
+        scope: room?.kind === "direct" ? "direct" : "group",
+        roomId: task.roomId,
+        text: `任务：${truncate(oneLine(task.trigger.body), 300)}\n结果：${truncate(oneLine(replyBody), 500)}`,
+      });
+
+      const count = await memory.count(employee.id);
+      if (count >= settings.consolidateAfterEntries) {
+        await this.consolidateMemory(employee, settings.maxInjectedEntries);
+      } else if (count > settings.maxEntriesPerEmployee) {
+        await memory.trim(employee.id, settings.maxEntriesPerEmployee);
+      }
+    } catch {
+      // 记忆属于增强能力，失败不应影响主流程。
+    }
+  }
+
+  /** 把最旧的若干条记忆交给员工自己压缩成一条摘要。 */
+  private async consolidateMemory(employee: Employee, keepLast: number): Promise<void> {
+    const memory = this.deps.memory;
+    if (!memory) return;
+    const settings = this.deps.config.get().memory;
+    const entries = await memory.list(employee.id);
+    const keep = Math.min(keepLast, entries.length);
+    const absorb = entries.slice(0, entries.length - keep);
+    if (absorb.length === 0) return;
+
+    const created = await this.deps.createAdapter(employee);
+    if (!created.ok) {
+      await memory.trim(employee.id, settings.maxEntriesPerEmployee);
+      return;
+    }
+
+    const prompt = [
+      "下面是你自己的历史记忆条目。请把它们压缩成一段不超过 200 字的摘要，",
+      "保留事实、结论、约定和尚未完成的事项，去掉寒暄与重复。只输出摘要正文。",
+      "<memory_entries>",
+      ...absorb.map((entry) => `- ${oneLine(entry.text)}`),
+      "</memory_entries>",
+    ].join("\n");
+
+    try {
+      const result = await created.adapter.run({
+        prompt,
+        systemPrompt: "你是记忆整理器，只做压缩归纳。",
+        cwd: employee.workspaceDir,
+        permissions: employee.permissions,
+        timeoutMs: 120000,
+      });
+      const text =
+        result.ok && result.text.trim() !== ""
+          ? truncate(oneLine(result.text), 600)
+          : `${absorb.length} 条旧记忆已折叠`;
+      await memory.consolidate(employee.id, keep, text);
+    } catch {
+      await memory.trim(employee.id, settings.maxEntriesPerEmployee);
+    }
   }
 
   private labelOf(message: Message): string {

@@ -7,11 +7,12 @@ import type {
   Message,
   PermissionMode,
 } from "@buddy/core";
-import { ipcMain, type BrowserWindow } from "electron";
+import { app, ipcMain, type BrowserWindow } from "electron";
 
 import {
   defaultWorkspaceDir,
   ensureDir,
+  listSkills,
   probeFrameworks,
   type AppServices,
 } from "./services";
@@ -38,7 +39,7 @@ export function registerIpc(
   services: AppServices,
   getWindow: () => BrowserWindow | null,
 ): void {
-  const { config, employees, rooms, messages, service, dataDir } = services;
+  const { config, employees, rooms, messages, memory, service, dataDir } = services;
   const send = (channel: string, payload: unknown): void => {
     getWindow()?.webContents.send(channel, payload);
   };
@@ -55,11 +56,31 @@ export function registerIpc(
 
   handle("app:bootstrap", async () => ({
     dataDir,
+    bootstrapDir: services.bootstrapDir,
     config: config.get(),
     employees: employees.list(),
     rooms: rooms.list(),
     frameworks: await probeFrameworks(config),
+    skills: await listSkills(services),
   }));
+
+  handle("app:relaunch", () => {
+    app.relaunch();
+    app.exit(0);
+    return true;
+  });
+
+  handle("skills:catalog", () => listSkills(services));
+
+  handle<{ employeeId: string }, unknown>("memory:list", async ({ employeeId }) => {
+    const entries = await memory.list(employeeId);
+    return { count: entries.length, recent: entries.slice(-5).reverse() };
+  });
+
+  handle<{ employeeId: string }, boolean>("memory:clear", async ({ employeeId }) => {
+    await memory.clear(employeeId);
+    return true;
+  });
 
   handle<DeepPartial<BuddyConfig>, BuddyConfig>("settings:update", (patch) =>
     config.update(patch),
@@ -118,10 +139,33 @@ export function registerIpc(
     return true;
   });
 
-  handle<{ name: string; memberIds?: string[] }, unknown>(
+  handle<{ name: string; memberIds?: string[]; kind?: "group" | "direct" }, unknown>(
     "room:create",
-    ({ name, memberIds }) => rooms.create({ name: name.trim(), memberIds: memberIds ?? [] }),
+    ({ name, memberIds, kind }) =>
+      rooms.create({ name: name.trim(), memberIds: memberIds ?? [], kind: kind ?? "group" }),
   );
+
+  /** 单聊：已存在就复用，避免每次点击都新建一个房间。 */
+  handle<{ employeeId: string }, unknown>("room:direct", async ({ employeeId }) => {
+    const employee = employees.get(employeeId);
+    if (!employee) throw new Error(`员工不存在: ${employeeId}`);
+
+    const existing = rooms
+      .list()
+      .find(
+        (room) =>
+          room.kind === "direct" &&
+          room.memberIds.length === 1 &&
+          room.memberIds[0] === employeeId,
+      );
+    if (existing) return existing;
+
+    return rooms.create({
+      name: employee.displayName,
+      kind: "direct",
+      memberIds: [employeeId],
+    });
+  });
 
   handle<{ id: string; patch: { name?: string; memberIds?: string[] } }, unknown>(
     "room:update",

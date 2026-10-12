@@ -5,6 +5,7 @@ import type {
   Message,
   PermissionMode,
   Room,
+  SkillInfo,
 } from "@buddy/core";
 
 export interface FrameworkStatus {
@@ -14,10 +15,17 @@ export interface FrameworkStatus {
 
 export interface Bootstrap {
   dataDir: string;
+  bootstrapDir: string;
   config: BuddyConfig;
   employees: Employee[];
   rooms: Room[];
   frameworks: Record<string, FrameworkStatus>;
+  skills: SkillInfo[];
+}
+
+export interface MemorySnapshot {
+  count: number;
+  recent: { id: string; kind: string; text: string; createdAt: string }[];
 }
 
 export interface RunEvent {
@@ -72,8 +80,10 @@ export const api = {
   updateEmployee: (id: string, patch: Partial<CreateEmployeePayload>) =>
     window.buddy.invoke<Employee>("employee:update", { id, patch }),
   removeEmployee: (id: string) => window.buddy.invoke<boolean>("employee:remove", { id }),
-  createRoom: (name: string, memberIds: string[]) =>
-    window.buddy.invoke<Room>("room:create", { name, memberIds }),
+  createRoom: (name: string, memberIds: string[], kind: "group" | "direct" = "group") =>
+    window.buddy.invoke<Room>("room:create", { name, memberIds, kind }),
+  directRoom: (employeeId: string) =>
+    window.buddy.invoke<Room>("room:direct", { employeeId }),
   updateRoom: (id: string, patch: { name?: string; memberIds?: string[] }) =>
     window.buddy.invoke<Room>("room:update", { id, patch }),
   removeRoom: (id: string) => window.buddy.invoke<boolean>("room:remove", { id }),
@@ -83,4 +93,10 @@ export const api = {
   stopAll: () => window.buddy.invoke<{ cancelled: number }>("run:stopAll"),
   resolveApproval: (approvalId: string, approved: boolean) =>
     window.buddy.invoke<boolean>("approval:resolve", { approvalId, approved }),
+  skillsCatalog: () => window.buddy.invoke<SkillInfo[]>("skills:catalog"),
+  memoryList: (employeeId: string) =>
+    window.buddy.invoke<MemorySnapshot>("memory:list", { employeeId }),
+  memoryClear: (employeeId: string) =>
+    window.buddy.invoke<boolean>("memory:clear", { employeeId }),
+  relaunch: () => window.buddy.invoke<boolean>("app:relaunch"),
 };

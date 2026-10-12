@@ -10,6 +10,8 @@ import { ConfigStore } from "../config/configStore";
 import type { Employee } from "../domain/schema";
 import { EmployeeStore } from "../employee/employeeStore";
 import { EventBus } from "../events/eventBus";
+import { MemoryStore } from "../memory/memoryStore";
+import type { SkillInfo } from "../skills/skillCatalog";
 import { FileStore } from "../storage/fileStore";
 import { MessageLog } from "./messageLog";
 import { RoomService, type RoomServiceEvents } from "./roomService";
@@ -31,6 +33,8 @@ interface Harness {
   replies: Map<string, string>;
   setBehavior: (value: Behavior) => void;
   maxConcurrency: () => number;
+  memory: MemoryStore;
+  setSkills: (value: SkillInfo[]) => void;
 }
 
 type Behavior = (request: AgentRunRequest, employeeId: string) => {
@@ -59,6 +63,8 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
   const rooms = new RoomStore(store, join(workDir, "rooms.json"));
   await rooms.load();
   const messages = new MessageLog(store, workDir);
+  const memory = new MemoryStore(store, workDir);
+  let skills: SkillInfo[] = [];
 
   const calls: Call[] = [];
   const replies = new Map<string, string>();
@@ -131,6 +137,9 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     rooms,
     messages,
     events,
+    memory,
+    skillsFor: async (employee: Employee) =>
+      skills.filter((skill) => employee.skills.includes(skill.id)),
     createAdapter: async (employee: Employee): Promise<AdapterCreation> => ({
       ok: true,
       adapter: makeAdapter(employee.id, employee.displayName),
@@ -149,6 +158,10 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
       behavior = value;
     },
     maxConcurrency: () => maxConcurrency,
+    memory,
+    setSkills: (value) => {
+      skills = value;
+    },
   };
 }
 
@@ -306,5 +319,92 @@ describe("RoomService", () => {
 
     expect(harness.calls).toHaveLength(2);
     expect(harness.maxConcurrency()).toBe(1);
+  });
+
+  it("单聊房间里不写 @ 也会投递给唯一成员", async () => {
+    const harness = await makeHarness();
+    const employee = await harness.employees.create({
+      displayName: "小码",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "dm"),
+      stateDir: join(workDir, "state", "dm"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    const room = await harness.rooms.create({
+      name: "和小码单聊",
+      kind: "direct",
+      memberIds: [employee.id],
+    });
+
+    await harness.service.submitHumanMessage(room.id, "随便聊聊，今天怎么样？");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls.map((call) => call.employeeId)).toEqual([employee.id]);
+    expect(await harness.service.listMessages(room.id)).toHaveLength(2);
+  });
+
+  it("每次运行后写入一条记忆，并在下次注入到提示词里", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    harness.setBehavior(() => ({ text: "已经把 README 的错别字改完了" }));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 改一下 README 的错别字");
+    await harness.service.waitForIdle();
+
+    const entries = await harness.memory.list(coder.id);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.text).toContain("改一下 README 的错别字");
+    expect(entries[0]?.scope).toBe("group");
+
+    await harness.service.submitHumanMessage(roomId, "@小码 还有别的吗");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[1]?.prompt).toContain("<your_memory>");
+    expect(harness.calls[1]?.prompt).toContain("错别字");
+  });
+
+  it("记忆条数到阈值后自动整理成一条摘要", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    await harness.config.update({
+      memory: { consolidateAfterEntries: 3, maxInjectedEntries: 1 },
+    });
+    harness.setBehavior((_request, displayName) =>
+      displayName === "小码" && _request.systemPrompt === "你是记忆整理器，只做压缩归纳。"
+        ? { text: "此前三次任务的摘要" }
+        : { text: "活儿干完了" },
+    );
+
+    for (let index = 0; index < 3; index += 1) {
+      await harness.service.submitHumanMessage(roomId, `@小码 第 ${index + 1} 件事`);
+      await harness.service.waitForIdle();
+    }
+
+    const entries = await harness.memory.list(coder.id);
+    expect(entries.some((entry) => entry.kind === "digest")).toBe(true);
+    expect(entries.find((entry) => entry.kind === "digest")?.text).toBe("此前三次任务的摘要");
+    expect(entries.length).toBeLessThan(3);
+  });
+
+  it("启用的技能会以 SKILL.md 路径写进提示词", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    await harness.employees.update(coder.id, { skills: ["imagegen"] });
+    harness.setSkills([
+      {
+        id: "imagegen",
+        name: "图像生成",
+        description: "生成位图素材",
+        source: "framework",
+        entryPath: "C:\\skills\\imagegen\\SKILL.md",
+      },
+    ]);
+
+    await harness.service.submitHumanMessage(roomId, "@小码 画个图");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[0]?.prompt).toContain("<available_skills>");
+    expect(harness.calls[0]?.prompt).toContain("C:\\skills\\imagegen\\SKILL.md");
   });
 });

@@ -52,7 +52,47 @@ async function createWindow(): Promise<void> {
   });
 }
 
-/** 冒烟模式：走一遍「渲染层 → preload → 主进程 → core」的完整链路后退出。 */
+/**
+ * 冒烟模式：在真实渲染进程里走一遍「渲染层 → preload → 主进程 → core」的完整链路，
+ * 并把主要功能串成一个剧本跑一遍，最后退出。
+ */
+const smokeScript = `(async () => {
+  const out = {};
+  const boot = await window.buddy.invoke("app:bootstrap");
+  out.dataDir = boot.dataDir;
+  out.frameworks = Object.entries(boot.frameworks).map(([k, v]) => k + "=" + v.status).join(",");
+  out.skillCount = boot.skills.length;
+
+  const employee = await window.buddy.invoke("employee:create", {
+    displayName: "联调员工",
+    framework: "codex",
+    permissionMode: "read-only",
+  });
+  out.employee = employee.id;
+
+  const direct = await window.buddy.invoke("room:direct", { employeeId: employee.id });
+  out.directKind = direct.kind;
+  out.directMembers = direct.memberIds.length;
+
+  const again = await window.buddy.invoke("room:direct", { employeeId: employee.id });
+  out.directReused = again.id === direct.id;
+
+  const group = await window.buddy.invoke("room:create", {
+    name: "测试群",
+    memberIds: [employee.id],
+    kind: "group",
+  });
+  out.groupKind = group.kind;
+
+  const memory = await window.buddy.invoke("memory:list", { employeeId: employee.id });
+  out.memoryCount = memory.count;
+
+  const after = await window.buddy.invoke("app:bootstrap");
+  out.rooms = after.rooms.length;
+  out.employees = after.employees.length;
+  return JSON.stringify(out);
+})()`;
+
 async function runSmoke(): Promise<void> {
   const target = window;
   if (!target) {
@@ -60,12 +100,9 @@ async function runSmoke(): Promise<void> {
     return;
   }
   try {
-    const result = await target.webContents.executeJavaScript(
-      'window.buddy.invoke("app:bootstrap").then((info) => JSON.stringify({ employees: info.employees.length, rooms: info.rooms.length, dataDir: info.dataDir, frameworks: info.frameworks }))',
-    );
-    trace(`smoke: bootstrap ok: ${String(result)}`);
+    trace(`smoke: ok ${await target.webContents.executeJavaScript(smokeScript)}`);
   } catch (error) {
-    trace(`smoke: bootstrap failed: ${String(error)}`);
+    trace(`smoke: failed: ${String(error)}`);
     process.exitCode = 1;
   }
 }

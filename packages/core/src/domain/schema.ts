@@ -82,6 +82,8 @@ export type RoomPolicy = z.infer<typeof roomPolicySchema>;
 export const roomSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  /** group = 多人房间；direct = 与单个员工的单聊。 */
+  kind: z.enum(["group", "direct"]).default("group"),
   memberIds: z.array(z.string().min(1)).default([]),
   policy: roomPolicySchema.optional(),
   createdAt: isoDateTimeSchema,

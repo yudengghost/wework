@@ -27,6 +27,15 @@ describe("defaultConfig", () => {
       },
       builtinAgent: { baseUrl: null, apiKey: null, model: null },
       ui: { language: "zh-CN", showEmployeeThinking: false },
+      storage: { dataDir: null },
+      memory: {
+        enabled: true,
+        crossRoomRecall: true,
+        consolidateAfterEntries: 20,
+        maxEntriesPerEmployee: 200,
+        maxInjectedEntries: 8,
+      },
+      skills: { extraRoots: [], includeFrameworkSkills: true },
     });
   });
 

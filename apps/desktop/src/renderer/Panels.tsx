@@ -1,7 +1,54 @@
 import type { BuddyConfig, DeepPartial, Framework, PermissionMode } from "@buddy/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { api, type Bootstrap, type CreateEmployeePayload } from "./api";
+import { api, type Bootstrap, type CreateEmployeePayload, type MemorySnapshot } from "./api";
+
+interface PromptDialogProps {
+  title: string;
+  label: string;
+  initial: string;
+  onCancel: () => void;
+  onSubmit: (value: string) => void;
+}
+
+/**
+ * Electron 不支持 window.prompt（调用会直接失败），所以自建一个输入弹窗。
+ */
+export function PromptDialog({
+  title,
+  label,
+  initial,
+  onCancel,
+  onSubmit,
+}: PromptDialogProps) {
+  const [value, setValue] = useState(initial);
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal" style={{ width: 420 }} onClick={(event) => event.stopPropagation()}>
+        <h2>{title}</h2>
+        <div className="field">
+          <label>{label}</label>
+          <input
+            autoFocus
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") onSubmit(value);
+              if (event.key === "Escape") onCancel();
+            }}
+          />
+        </div>
+        <div className="row">
+          <button className="primary" onClick={() => onSubmit(value)}>
+            确定
+          </button>
+          <button onClick={onCancel}>取消</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const frameworks: { value: Framework; label: string }[] = [
   { value: "codex", label: "Codex CLI" },
@@ -27,8 +74,22 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
     framework: "codex",
     permissionMode: "workspace-write",
   });
-  const [skills, setSkills] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [memory, setMemory] = useState<Record<string, MemorySnapshot>>({});
+
+  const loadMemory = async (): Promise<void> => {
+    const snapshots: Record<string, MemorySnapshot> = {};
+    for (const employee of boot.employees) {
+      snapshots[employee.id] = await api.memoryList(employee.id);
+    }
+    setMemory(snapshots);
+  };
+
+  useEffect(() => {
+    void loadMemory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boot.employees.length]);
 
   const create = async (): Promise<void> => {
     if (draft.displayName.trim() === "") {
@@ -38,13 +99,10 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
     try {
       await api.createEmployee({
         ...draft,
-        skills: skills
-          .split(",")
-          .map((item) => item.trim())
-          .filter((item) => item !== ""),
+        skills: selectedSkills,
       });
       setDraft({ displayName: "", framework: "codex", permissionMode: "workspace-write" });
-      setSkills("");
+      setSelectedSkills([]);
       setError(null);
       await onChanged();
     } catch (cause) {
@@ -88,6 +146,41 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
             </div>
             <div className="sub" style={{ color: "var(--muted)", fontSize: 12, marginTop: 6 }}>
               {employee.workspaceDir}
+            </div>
+            {boot.skills.length > 0 && (
+              <div className="skill-inline">
+                <span className="sub">技能：</span>
+                {boot.skills.map((skill) => (
+                  <label key={skill.id} className="chip">
+                    <input
+                      type="checkbox"
+                      checked={employee.skills.includes(skill.id)}
+                      onChange={(event) => {
+                        const next = event.target.checked
+                          ? [...employee.skills, skill.id]
+                          : employee.skills.filter((id) => id !== skill.id);
+                        void api.updateEmployee(employee.id, { skills: next }).then(onChanged);
+                      }}
+                    />
+                    {skill.id}
+                    <span className="tag">{skill.source === "buddy" ? "本地" : "框架"}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="skill-inline">
+              <span className="sub">记忆：{memory[employee.id]?.count ?? 0} 条</span>
+              {(memory[employee.id]?.count ?? 0) > 0 && (
+                <button
+                  onClick={() => {
+                    void api.memoryClear(employee.id).then(async () => {
+                      await loadMemory();
+                    });
+                  }}
+                >
+                  清空记忆
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -156,8 +249,19 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
           />
         </div>
         <div className="field">
-          <label>技能白名单（逗号分隔，可留空）</label>
-          <input value={skills} onChange={(event) => setSkills(event.target.value)} />
+          <label>可用技能（勾选要启用的）</label>
+          {boot.skills.length === 0 ? (
+            <div className="sub">
+              没有发现技能。把技能放进数据目录的 <code>skills\&lt;名称&gt;\SKILL.md</code>，
+              或在设置里添加技能根目录。
+            </div>
+          ) : (
+            <SkillPicker
+              skills={boot.skills}
+              selected={selectedSkills}
+              onChange={setSelectedSkills}
+            />
+          )}
         </div>
 
         <div className="row">
@@ -168,6 +272,43 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
         </div>
         {error && <div className="error">{error}</div>}
       </div>
+    </div>
+  );
+}
+
+function SkillPicker({
+  skills,
+  selected,
+  onChange,
+}: {
+  skills: Bootstrap["skills"];
+  selected: string[];
+  onChange: (value: string[]) => void;
+}) {
+  return (
+    <div className="skill-list">
+      {skills.map((skill) => (
+        <label key={skill.id} className="skill">
+          <input
+            type="checkbox"
+            checked={selected.includes(skill.id)}
+            onChange={(event) =>
+              onChange(
+                event.target.checked
+                  ? [...selected, skill.id]
+                  : selected.filter((id) => id !== skill.id),
+              )
+            }
+          />
+          <span>
+            <strong>{skill.id}</strong>
+            <span className="tag" style={{ marginLeft: 6 }}>
+              {skill.source === "buddy" ? "本地" : "框架"}
+            </span>
+            {skill.description && <div className="sub">{skill.description}</div>}
+          </span>
+        </label>
+      ))}
     </div>
   );
 }
@@ -183,6 +324,8 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
       scheduler: config.scheduler,
       policy: config.policy,
       builtinAgent: config.builtinAgent,
+      memory: config.memory,
+      skills: config.skills,
     };
     const next = await api.updateSettings(patch);
     setConfig(next);
@@ -335,6 +478,130 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
               />
             </div>
           ))}
+        </div>
+
+        <h2 style={{ fontSize: 14 }}>员工记忆</h2>
+        <div className="card">
+          <label style={{ fontSize: 12, color: "var(--muted)" }}>
+            <input
+              type="checkbox"
+              style={{ width: "auto", marginRight: 6 }}
+              checked={config.memory.enabled}
+              onChange={(event) =>
+                setConfig({ ...config, memory: { ...config.memory, enabled: event.target.checked } })
+              }
+            />
+            启用员工记忆（默认开启）
+          </label>
+          <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginTop: 6 }}>
+            <input
+              type="checkbox"
+              style={{ width: "auto", marginRight: 6 }}
+              checked={config.memory.crossRoomRecall}
+              onChange={(event) =>
+                setConfig({
+                  ...config,
+                  memory: { ...config.memory, crossRoomRecall: event.target.checked },
+                })
+              }
+            />
+            单聊与群聊的记忆互相可见（关掉则只在同一房间内回忆）
+          </label>
+          <div className="grid2" style={{ marginTop: 10 }}>
+            {(
+              [
+                ["consolidateAfterEntries", "记忆满多少条后整理"],
+                ["maxEntriesPerEmployee", "每位员工记忆上限"],
+                ["maxInjectedEntries", "每次运行注入条数"],
+              ] as const
+            ).map(([key, label]) => (
+              <div className="field" key={key}>
+                <label>{label}</label>
+                <input
+                  type="number"
+                  value={config.memory[key]}
+                  onChange={(event) =>
+                    setConfig({
+                      ...config,
+                      memory: { ...config.memory, [key]: Number(event.target.value) },
+                    })
+                  }
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <h2 style={{ fontSize: 14 }}>技能目录</h2>
+        <div className="card">
+          <label style={{ fontSize: 12, color: "var(--muted)" }}>
+            <input
+              type="checkbox"
+              style={{ width: "auto", marginRight: 6 }}
+              checked={config.skills.includeFrameworkSkills}
+              onChange={(event) =>
+                setConfig({
+                  ...config,
+                  skills: { ...config.skills, includeFrameworkSkills: event.target.checked },
+                })
+              }
+            />
+            同时扫描 Codex / Claude Code 等框架自带的技能目录
+          </label>
+          <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+            <label>额外技能根目录（一行一个）</label>
+            <textarea
+              value={config.skills.extraRoots.join("\n")}
+              placeholder="E:\my-skills"
+              onChange={(event) =>
+                setConfig({
+                  ...config,
+                  skills: {
+                    ...config.skills,
+                    extraRoots: event.target.value
+                      .split("\n")
+                      .map((line) => line.trim())
+                      .filter((line) => line !== ""),
+                  },
+                })
+              }
+            />
+          </div>
+          <div className="sub">
+            当前发现 {boot.skills.length} 个技能；每个技能是一个含 SKILL.md 的子目录。
+          </div>
+        </div>
+
+        <h2 style={{ fontSize: 14 }}>数据位置</h2>
+        <div className="card">
+          <div className="sub" style={{ marginBottom: 6 }}>
+            当前数据目录：{boot.dataDir}
+          </div>
+          <div className="field">
+            <label>自定义数据目录（留空用默认位置）</label>
+            <input
+              value={config.storage.dataDir ?? ""}
+              placeholder={boot.bootstrapDir}
+              onChange={(event) =>
+                setConfig({
+                  ...config,
+                  storage: { dataDir: event.target.value.trim() || null },
+                })
+              }
+            />
+          </div>
+          <div className="row">
+            <button
+              onClick={() => {
+                void api
+                  .updateSettings({ storage: config.storage })
+                  .then(() => api.relaunch());
+              }}
+            >
+              保存数据目录并重启
+            </button>
+            <span className="sub">改目录会切换员工、房间、消息与记忆的存放位置，需要重启生效。</span>
+          </div>
         </div>
 
         <h2 style={{ fontSize: 14 }}>内置兜底员工（OpenAI 兼容接口）</h2>

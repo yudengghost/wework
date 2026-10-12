@@ -2,7 +2,7 @@ import type { Employee, Message } from "@buddy/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent, type Bootstrap } from "./api";
-import { EmployeesPanel, SettingsPanel } from "./Panels";
+import { EmployeesPanel, PromptDialog, SettingsPanel } from "./Panels";
 import { RoomView } from "./RoomView";
 
 type Panel = "none" | "employees" | "settings";
@@ -17,6 +17,12 @@ export function App() {
   const [notices, setNotices] = useState<string[]>([]);
   const [approvals, setApprovals] = useState<ApprovalEvent[]>([]);
   const [panel, setPanel] = useState<Panel>("none");
+  const [dialog, setDialog] = useState<{
+    title: string;
+    label: string;
+    initial: string;
+    onSubmit: (value: string) => void;
+  } | null>(null);
 
   const roomRef = useRef<string | null>(null);
   const employeesRef = useRef<Employee[]>([]);
@@ -110,13 +116,37 @@ export function App() {
     };
   }, [labelOf, pushNotice]);
 
-  const createRoom = async () => {
+  const createRoom = (): void => {
     if (!boot) return;
-    const name = window.prompt("房间名称", "新房间");
-    if (!name) return;
-    const room = await api.createRoom(name, boot.employees.map((employee) => employee.id));
-    await reload();
-    setSelectedRoomId(room.id);
+    const memberIds = boot.employees.map((employee) => employee.id);
+    setDialog({
+      title: "新建群聊房间",
+      label: "房间名称",
+      initial: "新房间",
+      onSubmit: (value) => {
+        setDialog(null);
+        const name = value.trim();
+        if (name === "") return;
+        void api
+          .createRoom(name, memberIds)
+          .then(async (room) => {
+            await reload();
+            setSelectedRoomId(room.id);
+          })
+          .catch((cause: unknown) => setError(String(cause)));
+      },
+    });
+  };
+
+  /** 点员工名即进入单聊；已存在则复用同一个房间。 */
+  const openDirect = (employeeId: string): void => {
+    void api
+      .directRoom(employeeId)
+      .then(async (room) => {
+        await reload();
+        setSelectedRoomId(room.id);
+      })
+      .catch((cause: unknown) => setError(String(cause)));
   };
 
   const resolveApproval = async (approvalId: string, approved: boolean) => {
@@ -125,6 +155,10 @@ export function App() {
   };
 
   const selectedRoom = boot?.rooms.find((room) => room.id === selectedRoomId) ?? null;
+  const directRooms = boot?.rooms.filter((room) => room.kind === "direct") ?? [];
+  const groupRooms = boot?.rooms.filter((room) => room.kind !== "direct") ?? [];
+  const directRoomOf = (employeeId: string) =>
+    directRooms.find((room) => room.memberIds[0] === employeeId);
 
   if (!boot) {
     return (
@@ -141,10 +175,11 @@ export function App() {
       <aside className="sidebar">
         <h1>Buddy</h1>
         <p className="hint">
-          {boot.employees.length} 名员工 · {boot.rooms.length} 个房间
+          {boot.employees.length} 名员工 · {groupRooms.length} 个群聊 · {directRooms.length} 个单聊
         </p>
         <div className="list">
-          {boot.rooms.map((room) => (
+          <div className="section-title">群聊</div>
+          {groupRooms.map((room) => (
             <div
               key={room.id}
               className={`list-item${room.id === selectedRoomId ? " active" : ""}`}
@@ -154,10 +189,31 @@ export function App() {
               <div className="sub">{room.memberIds.length} 名成员</div>
             </div>
           ))}
-          {boot.rooms.length === 0 && <p className="hint">还没有房间，先建一个。</p>}
+          {groupRooms.length === 0 && <p className="hint">还没有群聊，点下面「新建群聊」。</p>}
+
+          <div className="section-title">单聊</div>
+          {boot.employees.map((employee) => {
+            const room = directRoomOf(employee.id);
+            return (
+              <div
+                key={employee.id}
+                className={`list-item${room && room.id === selectedRoomId ? " active" : ""}`}
+                onClick={() => openDirect(employee.id)}
+              >
+                <div>{employee.displayName}</div>
+                <div className="sub">
+                  {employee.framework}
+                  {room ? " · 有历史" : ""}
+                </div>
+              </div>
+            );
+          })}
+          {boot.employees.length === 0 && (
+            <p className="hint">先去「员工管理」创建一名员工。</p>
+          )}
         </div>
         <div className="sidebar-footer">
-          <button onClick={() => void createRoom()}>新建房间</button>
+          <button onClick={createRoom}>新建群聊</button>
           <button onClick={() => setPanel("employees")}>员工管理</button>
           <button onClick={() => setPanel("settings")}>设置</button>
           <button
@@ -215,6 +271,15 @@ export function App() {
           boot={boot}
           onClose={() => setPanel("none")}
           onChanged={reload}
+        />
+      )}
+      {dialog && (
+        <PromptDialog
+          title={dialog.title}
+          label={dialog.label}
+          initial={dialog.initial}
+          onCancel={() => setDialog(null)}
+          onSubmit={dialog.onSubmit}
         />
       )}
     </div>

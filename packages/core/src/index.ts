@@ -24,3 +24,5 @@ export * from "./adapters/cliAgentAdapter";
 export * from "./adapters/createAdapter";
 export * from "./room/mentions";
 export * from "./room/roomService";
+export * from "./memory/memoryStore";
+export * from "./skills/skillCatalog";
