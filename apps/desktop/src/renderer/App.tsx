@@ -15,6 +15,7 @@ import {
   EmptyState,
   GearIcon,
   PlusIcon,
+  Section,
   SparkIcon,
   StopIcon,
   UsersIcon,
@@ -29,7 +30,9 @@ export function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streams, setStreams] = useState<Record<string, string>>({});
   const [running, setRunning] = useState<Record<string, boolean>>({});
-  const [notices, setNotices] = useState<string[]>([]);
+  const [notices, setNotices] = useState<{ id: number; text: string }[]>([]);
+  const noticeSeq = useRef(0);
+  const noticeTimers = useRef<number[]>([]);
   const [approvals, setApprovals] = useState<ApprovalEvent[]>([]);
   const [panel, setPanel] = useState<Panel>("none");
   const [createRoomOpen, setCreateRoomOpen] = useState(false);
@@ -44,9 +47,24 @@ export function App() {
   }, []);
 
   const pushNotice = useCallback((text: string) => {
-    setNotices((prev) => [...prev, text]);
-    setTimeout(() => setNotices((prev) => prev.slice(1)), 6000);
+    const id = (noticeSeq.current += 1);
+    // 只保留最近几条；按 id 删除，确保移除的是超时的那一条而不是队首。
+    setNotices((prev) => [...prev.slice(-3), { id, text }]);
+    const timer = window.setTimeout(() => {
+      setNotices((prev) => prev.filter((item) => item.id !== id));
+      noticeTimers.current = noticeTimers.current.filter((entry) => entry !== timer);
+    }, 6000);
+    noticeTimers.current = [...noticeTimers.current, timer];
   }, []);
+
+  // 卸载时清掉所有提示定时器，避免残留的 setTimeout 继续持有闭包。
+  useEffect(
+    () => () => {
+      noticeTimers.current.forEach((timer) => window.clearTimeout(timer));
+      noticeTimers.current = [];
+    },
+    [],
+  );
 
   const reload = useCallback(async () => {
     try {
@@ -125,9 +143,8 @@ export function App() {
         if (!event.ok) {
           pushNotice(`${labelOf(event.employeeId)} 运行失败：${event.error ?? "未知原因"}`);
         }
-        if (event.roomId === roomRef.current) {
-          void api.messages(event.roomId).then(setMessages);
-        }
+        // 不再重拉整份历史：员工的回复已经通过 message 事件增量到达，
+        // 每完成一次运行就全量读一遍房间只是浪费。
         return;
       }
       if (event.kind === "skipped") {
@@ -209,11 +226,7 @@ export function App() {
           </div>
         </div>
         <div className="list">
-          <section className="nav-section">
-            <div className="nav-section-head">
-              群聊
-              <span className="count-pill">{groupRooms.length}</span>
-            </div>
+          <Section title="群聊" count={groupRooms.length} storageKey="buddy.section.groups">
             {groupRooms.map((room) => (
               <div
                 key={room.id}
@@ -232,13 +245,13 @@ export function App() {
                 还没有群聊，点左下角 + 新建
               </div>
             )}
-          </section>
+          </Section>
 
-          <section className="nav-section">
-            <div className="nav-section-head">
-              单聊
-              <span className="count-pill">{boot.employees.length}</span>
-            </div>
+          <Section
+            title="单聊"
+            count={boot.employees.length}
+            storageKey="buddy.section.direct"
+          >
             {boot.employees.map((employee) => {
               const room = directRoomOf(employee.id);
               return (
@@ -263,13 +276,13 @@ export function App() {
                 先去「员工管理」创建一名员工
               </div>
             )}
-          </section>
+          </Section>
           {orphanRooms.length > 0 && (
-            <section className="nav-section">
-              <div className="nav-section-head">
-                已离开
-                <span className="count-pill">{orphanRooms.length}</span>
-              </div>
+            <Section
+              title="已离开"
+              count={orphanRooms.length}
+              storageKey="buddy.section.archived"
+            >
               {orphanRooms.map(({ room, label }) => (
                 <div
                   key={room.id}
@@ -283,7 +296,7 @@ export function App() {
                   </div>
                 </div>
               ))}
-            </section>
+            </Section>
           )}
         </div>
         <div className="sidebar-footer">
@@ -444,10 +457,10 @@ export function App() {
 
       {notices.length > 0 && (
         <div className="toasts">
-          {notices.map((notice, index) => (
-            <div key={`${index}-${notice}`} className="toast">
+          {notices.map((notice) => (
+            <div key={notice.id} className="toast">
               <AlertIcon size={15} />
-              {notice}
+              {notice.text}
             </div>
           ))}
         </div>

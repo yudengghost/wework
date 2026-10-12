@@ -1,5 +1,5 @@
 import type { Employee, Message, Room } from "@buddy/core";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent } from "./api";
 import { AlertIcon, Avatar, PlusIcon, SendIcon, StopIcon, TrashIcon } from "./ui";
@@ -25,6 +25,18 @@ export function RoomView(props: RoomViewProps) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+
+  /**
+   * 有新消息或流式增量时滚到底部，但只在用户本来就贴着底部时才滚——
+   * 否则用户往回翻历史会被不断拽回去。
+   */
+  const streamLength = Object.values(streams).reduce((total, text) => total + text.length, 0);
+  useEffect(() => {
+    const element = listRef.current;
+    if (element && atBottomRef.current) element.scrollTop = element.scrollHeight;
+  }, [messages.length, streamLength]);
 
   const members = employees.filter((employee) => room.memberIds.includes(employee.id));
   const isDirect = room.kind === "direct";
@@ -144,7 +156,15 @@ export function RoomView(props: RoomViewProps) {
         </div>
       )}
 
-      <div className="messages">
+      <div
+        className="messages"
+        ref={listRef}
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          atBottomRef.current =
+            element.scrollHeight - element.scrollTop - element.clientHeight < 60;
+        }}
+      >
         {messages.length === 0 && (
           <div className="empty">
             {isDirect
