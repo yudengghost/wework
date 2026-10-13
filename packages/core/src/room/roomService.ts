@@ -632,6 +632,9 @@ export class RoomService {
       ...(this.hireGuideEnabled(employee)
         ? ["", "<hiring>", this.prompts.employeeRequestGuide, "</hiring>"]
         : []),
+      ...(this.hireGuideEnabled(employee)
+        ? ["", this.companyBlock(task.roomId, employee)]
+        : []),
       "",
       render(this.prompts.taskHeader, { employee: employee.displayName }),
       `<message from="${from}">`,
@@ -649,6 +652,35 @@ export class RoomService {
    */
   private async teamBlock(room: Room, employee: Employee): Promise<string> {
     return this.buildTeamBlock(room, employee);
+  }
+
+  /**
+   * 招人协议只给「被显式授权」的员工：应用要接入创建能力、全局策略没关、
+   * 且这位员工自己打开了 canHire。
+   */
+  private companyBlock(roomId: string, employee: Employee): string {
+    const room = this.deps.rooms.get(roomId);
+    const members = new Set(room?.memberIds ?? []);
+    const roster = this.deps.employees.list();
+
+    const lines = roster.map((item) => {
+      const role = oneLine(item.systemPrompt ?? "") || this.prompts.companyRosterNoRole;
+      const marks = [
+        `${item.framework} · ${item.permissions.mode}`,
+        members.has(item.id) ? "在本房间" : null,
+        item.id === employee.id ? "你自己" : null,
+      ].filter((mark): mark is string => mark !== null);
+      return `- ${item.displayName}（${marks.join("，")}）：${truncate(role, 80)}`;
+    });
+
+    return [
+      "<company_roster>",
+      render(this.prompts.companyRosterHeader, { count: roster.length }),
+      ...lines,
+      this.prompts.companyRosterGuide,
+      this.prompts.companyRosterMentionLimit,
+      "</company_roster>",
+    ].join("\n");
   }
 
   /**

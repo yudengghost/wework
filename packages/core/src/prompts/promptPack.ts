@@ -53,6 +53,17 @@ export const defaultPrompts = {
     "申请只是提议，用户可能拒绝；不要假设新同事已经存在或已经接手。",
   ].join("\n"),
 
+  /** 员工名册（只有被授权招人的员工才看得到）。占位符：{count} */
+  companyRosterHeader: "团队现有 {count} 位在册员工（你看得到全体，但只有本房间成员能被你 @ 到）：",
+  /** 名册用途提示。 */
+  companyRosterGuide:
+    "判断是否招人之前先核对这份名单：如果某个角色已经覆盖了你要招的职责，就不要重复提申请；职责重叠时改为建议调整分工。",
+  /** 必须说清楚的能力边界，否则它会去 @ 一个不在房间里的人。 */
+  companyRosterMentionLimit:
+    "注意：你只能 @ 本房间的成员。需要名册里的其他人参与时，请让用户先把它加入本房间，否则你的 @ 不会送达。",
+  /** 员工没填人设时的占位。 */
+  companyRosterNoRole: "（未填写职责）",
+
   /** 归纳长期记忆用的 system prompt 与指令。 */
   distillSystem: "你是记忆整理器，只做归纳，不执行任何任务。",
   distillInstruction: [

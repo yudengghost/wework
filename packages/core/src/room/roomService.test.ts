@@ -775,4 +775,41 @@ describe("RoomService", () => {
     expect(harness.calls[0]?.prompt).toContain("<hiring>");
     expect(approvals).toHaveLength(1);
   });
+
+  it("被授权招人的员工能看到全体名册，包括不在本房间的同事", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    // 一位不在房间里的同事
+    await harness.employees.create({
+      displayName: "外部同事",
+      framework: "claude-code",
+      workspaceDir: join(workDir, "ws", "outside"),
+      stateDir: join(workDir, "state", "outside"),
+      systemPrompt: "负责数据迁移与清洗。",
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+
+    await harness.service.submitHumanMessage(roomId, "@小码 看看要不要招人");
+    await harness.service.waitForIdle();
+
+    const prompt = harness.calls[0]?.prompt ?? "";
+    expect(prompt).toContain("<company_roster>");
+    expect(prompt).toContain("外部同事");
+    expect(prompt).toContain("负责数据迁移与清洗。");
+    // 必须说清能力边界，否则它会去 @ 一个不在房间里的人
+    expect(prompt).toContain("只能 @ 本房间的成员");
+    // 标出谁在本房间
+    expect(prompt).toContain("在本房间");
+  });
+
+  it("未授权的员工看不到全体名册", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+
+    await harness.service.submitHumanMessage(roomId, "@小测 看看要不要招人");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[0]?.prompt).not.toContain("<company_roster>");
+  });
 });
