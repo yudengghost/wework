@@ -25,6 +25,8 @@ export interface CreateEmployeePayload {
   systemPrompt?: string;
   skills?: string[];
   permissionMode: PermissionMode;
+  /** 是否允许这位员工申请招人（模拟 HR）。 */
+  canHire?: boolean;
   workspaceDir?: string;
   stateDir?: string;
 }
@@ -119,6 +121,7 @@ export function registerIpc(
       if (patch.model !== undefined) next.model = patch.model.trim() || undefined;
       if (patch.systemPrompt !== undefined) next.systemPrompt = patch.systemPrompt || undefined;
       if (patch.skills !== undefined) next.skills = patch.skills;
+      if (patch.canHire !== undefined) next.canHire = patch.canHire;
       if (patch.permissionMode !== undefined) {
         next.permissions = { ...current.permissions, mode: patch.permissionMode };
       }

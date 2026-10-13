@@ -66,6 +66,7 @@ export interface CreateEmployeePayload {
   systemPrompt?: string;
   skills?: string[];
   permissionMode: PermissionMode;
+  canHire?: boolean;
 }
 
 interface BuddyBridge {

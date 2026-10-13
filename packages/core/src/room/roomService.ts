@@ -357,7 +357,10 @@ export class RoomService {
     hire: { drafts: EmployeeDraft[]; errors: string[] },
   ): Promise<void> {
     const { policy, scheduler } = this.deps.config.get();
-    if (!this.deps.createEmployee || policy.employeeMayHire === "off") return;
+    // 没被授权的员工即使自己写出了协议块也不受理（提示词之外的第二道门）。
+    if (!this.deps.createEmployee || policy.employeeMayHire === "off" || !employee.canHire) {
+      return;
+    }
 
     for (const error of hire.errors) {
       await this.appendSystemMessage(room.id, `${employee.displayName} 的招人申请格式有问题：${error}`);
@@ -626,7 +629,9 @@ export class RoomService {
       ...(attachments.length === 0 ? [] : ["", this.attachmentBlock(attachments)]),
       ...(memory === "" ? [] : ["", memory]),
       ...(skills === "" ? [] : ["", skills]),
-      ...(this.hireGuideEnabled() ? ["", "<hiring>", this.prompts.employeeRequestGuide, "</hiring>"] : []),
+      ...(this.hireGuideEnabled(employee)
+        ? ["", "<hiring>", this.prompts.employeeRequestGuide, "</hiring>"]
+        : []),
       "",
       render(this.prompts.taskHeader, { employee: employee.displayName }),
       `<message from="${from}">`,
@@ -646,11 +651,16 @@ export class RoomService {
     return this.buildTeamBlock(room, employee);
   }
 
-  /** 只有应用层提供了创建能力、且策略允许时才把招人协议告诉员工。 */
-  private hireGuideEnabled(): boolean {
+  /**
+   * 招人协议只给「被显式授权」的员工：应用要接入创建能力、全局策略没关、
+   * 且这位员工自己打开了 canHire。三者缺一，它就不该知道有这条协议——
+   * 否则会出现"嘴上能招、实际没招"的幻觉。
+   */
+  private hireGuideEnabled(employee: Employee): boolean {
     return (
       this.deps.createEmployee !== undefined &&
-      this.deps.config.get().policy.employeeMayHire === "confirm"
+      this.deps.config.get().policy.employeeMayHire === "confirm" &&
+      employee.canHire
     );
   }
 

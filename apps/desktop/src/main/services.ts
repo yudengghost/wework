@@ -186,6 +186,7 @@ export interface EmployeeDraftInput {
   systemPrompt?: string;
   skills?: string[];
   permissionMode?: PermissionMode;
+  canHire?: boolean;
   workspaceDir?: string;
   stateDir?: string;
 }
@@ -217,6 +218,7 @@ export async function createEmployeeFromDraft(
       model: draft.model?.trim() ? draft.model.trim() : undefined,
       systemPrompt: draft.systemPrompt?.trim() ? draft.systemPrompt : undefined,
       skills: draft.skills ?? [],
+      canHire: draft.canHire ?? false,
       permissions: {
         mode: draft.permissionMode ?? "workspace-write",
         allowedTools: [],

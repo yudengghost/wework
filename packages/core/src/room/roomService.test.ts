@@ -199,6 +199,8 @@ async function seedTeam(harness: Harness): Promise<{ roomId: string; coder: Empl
   const coder = await harness.employees.create({
     displayName: "小码",
     framework: "codex",
+    // 授权招人的那一位；小测保持默认（未授权），用来验证能力门。
+    canHire: true,
     workspaceDir: join(workDir, "ws", "coder"),
     stateDir: join(workDir, "state", "coder"),
     permissions: { mode: "workspace-write" },
@@ -721,6 +723,7 @@ describe("RoomService", () => {
   });
 
   it("关闭该能力时既不注入协议说明，也不受理申请", async () => {
+    // 未授权员工的对照测试见下一个用例。
     const harness = await makeHarness();
     const { roomId } = await seedTeam(harness);
     await harness.config.update({ policy: { employeeMayHire: "off" } });
@@ -734,5 +737,42 @@ describe("RoomService", () => {
     expect(harness.calls[0]?.prompt).not.toContain("<hiring>");
     expect(approvals).toEqual([]);
     expect(harness.hires).toEqual([]);
+  });
+
+  it("未授权的员工：不给协议说明，自己写出协议块也不受理", async () => {
+    const harness = await makeHarness();
+    const { roomId, reviewer } = await seedTeam(harness);
+    // 小测默认没有 canHire
+    expect(harness.employees.get(reviewer.id)?.canHire).toBe(false);
+    harness.setBehavior(() => ({
+      text: hireBlock('{"displayName":"偷偷招的人","framework":"codex"}'),
+    }));
+    const approvals: unknown[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload));
+
+    await harness.service.submitHumanMessage(roomId, "@小测 招个人");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[0]?.prompt).not.toContain("<hiring>");
+    expect(approvals).toEqual([]);
+    expect(harness.hires).toEqual([]);
+    expect(harness.employees.list().map((item) => item.displayName)).not.toContain("偷偷招的人");
+  });
+
+  it("授权开关打开后，同一位员工立刻拿到协议说明", async () => {
+    const harness = await makeHarness();
+    const { roomId, reviewer } = await seedTeam(harness);
+    await harness.employees.update(reviewer.id, { canHire: true });
+    harness.setBehavior(() => ({
+      text: hireBlock('{"displayName":"新招的测试","framework":"codex"}'),
+    }));
+    const approvals: unknown[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload));
+
+    await harness.service.submitHumanMessage(roomId, "@小测 招个人");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[0]?.prompt).toContain("<hiring>");
+    expect(approvals).toHaveLength(1);
   });
 });

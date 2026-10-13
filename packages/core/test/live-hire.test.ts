@@ -105,6 +105,7 @@ describe.skipIf(!liveEnabled)("真机模拟 HR：员工自主发起招人", () =
       workspaceDir: hrWorkspace,
       stateDir: join(root, "state", "hr"),
       systemPrompt: "你是团队负责人，负责判断人手是否充足并组建团队。",
+      canHire: true,
       permissions: { mode: "workspace-write" },
       skills: [],
     });

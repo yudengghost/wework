@@ -310,11 +310,20 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
               <span className="sub">
                 技能 {employee.skills.length} / {boot.skills.length}
               </span>
+              {employee.canHire && <span className="tag ok">可招人</span>}
               {employee.sessionRef && <span className="sub">有进行中的会话</span>}
             </div>
             <details className="emp-details">
               <summary>工作目录、技能与记忆管理</summary>
               <div className="sub mono">{employee.workspaceDir}</div>
+              <Switch
+                label="可以申请招人（模拟 HR）"
+                hint="打开后，它才拿得到招人协议；提交的申请仍需你点允许才会创建"
+                checked={employee.canHire}
+                onChange={(value) => {
+                  void api.updateEmployee(employee.id, { canHire: value }).then(onChanged);
+                }}
+              />
             {boot.skills.length > 0 && (
               <div className="field" style={{ marginBottom: 0 }}>
                 <label>

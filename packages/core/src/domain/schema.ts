@@ -28,6 +28,8 @@ export const employeeSchema = z.object({
   model: z.string().min(1).optional(),
   systemPrompt: z.string().optional(),
   skills: z.array(z.string()).default([]),
+  /** 是否允许这位员工提交招人申请（模拟 HR）。默认关闭，需在员工卡片里显式打开。 */
+  canHire: z.boolean().default(false),
   permissions: permissionPolicySchema,
   sessionRef: z.string().min(1).optional(),
   /**
