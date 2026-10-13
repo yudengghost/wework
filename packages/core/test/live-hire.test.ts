@@ -61,8 +61,10 @@ describe.skipIf(!liveEnabled)("真机模拟 HR：员工自主发起招人", () =
       kind?: string;
       summary: string;
       draft?: EmployeeDraft;
+      skillsUnknown?: string[];
     }[] = [];
     const events = new EventBus<RoomServiceEvents>();
+    const promptsSeen: string[] = [];
 
     const service = new RoomService({
       config,
@@ -74,6 +76,23 @@ describe.skipIf(!liveEnabled)("真机模拟 HR：员工自主发起招人", () =
       prompts,
       attachments,
       events,
+      // 技能目录：HR 应该能看到这两个技能，并把需要的那一个写到申请里。
+      skillCatalog: async () => [
+        {
+          id: "docx",
+          name: "文档处理",
+          description: "创建与编辑 Word 文档。",
+          source: "framework",
+          entryPath: join(root, "skills", "docx", "SKILL.md"),
+        },
+        {
+          id: "xlsx",
+          name: "表格处理",
+          description: "创建与编辑 Excel 表格。",
+          source: "framework",
+          entryPath: join(root, "skills", "xlsx", "SKILL.md"),
+        },
+      ],
       // 与桌面端 createEmployeeFromDraft 同形：建目录 + 落档案。
       createEmployee: async (draft) => {
         const workspaceDir = join(root, "workspaces", draft.displayName);
@@ -92,8 +111,25 @@ describe.skipIf(!liveEnabled)("真机模拟 HR：员工自主发起招人", () =
         });
         return { ok: true, employee };
       },
-      createAdapter: (employee) =>
-        createAdapterForEmployee({ employee, launchers: config.get().launchers }),
+      // 包一层只为了把真正投出去的提示词留下来做断言。
+      createAdapter: async (employee) => {
+        const created = await createAdapterForEmployee({
+          employee,
+          launchers: config.get().launchers,
+        });
+        if (!created.ok) return created;
+        const inner = created.adapter;
+        return {
+          ok: true,
+          adapter: {
+            framework: inner.framework,
+            run: (request, onEvent) => {
+              promptsSeen.push(request.prompt);
+              return inner.run(request, onEvent);
+            },
+          },
+        };
+      },
     });
     service.getEvents().on("approval-requested", (payload) => approvals.push(payload));
 
@@ -113,7 +149,7 @@ describe.skipIf(!liveEnabled)("真机模拟 HR：员工自主发起招人", () =
 
     await service.submitHumanMessage(
       room.id,
-      "@HR主管 我们这个项目一直没人写测试，交付质量没底。缺人是事实，不用再确认。请直接提交招人申请：名字叫「测试员」，用 codex，权限 workspace-write（它要能写测试文件）。",
+      "@HR主管 我们这个项目一直没人写测试，交付质量没底。缺人是事实，不用再确认。请直接提交招人申请：名字叫「测试员」，用 codex，权限 workspace-write（它要能写测试文件），并给它开上「docx」这个技能（技能目录里只有 docx 和 xlsx，它写测试报告要用 docx）。",
     );
     await service.waitForIdle();
 
@@ -123,6 +159,10 @@ describe.skipIf(!liveEnabled)("真机模拟 HR：员工自主发起招人", () =
       console.log(`[hire] --- 消息${index} [${message.kind}] ${JSON.stringify(message.body.slice(0, 500))}`);
     });
     console.log(`[hire] HR 回复=${JSON.stringify((transcript[1]?.body ?? "").slice(0, 400))}`);
+    console.log(
+      `[hire] 提示词里有技能目录=${promptsSeen[0]?.includes("<skills_catalog>") === true}，申请里的技能=${JSON.stringify(approvals[0]?.draft?.skills ?? null)}`,
+    );
+    console.log(`[hire] 申请里的未知技能=${JSON.stringify(approvals[0]?.skillsUnknown ?? null)}`);
     console.log(`[hire] 待审批数=${approvals.length}`);
     console.log(`[hire] 审批内容=${JSON.stringify(approvals[0]?.draft ?? null)}`);
     console.log(
@@ -135,6 +175,10 @@ describe.skipIf(!liveEnabled)("真机模拟 HR：员工自主发起招人", () =
     expect(draft?.displayName).toBe("测试员");
     expect(draft?.framework).toBe("codex");
     expect(draft?.permissionMode).toBe("workspace-write");
+    // HR 必须真的按目录填技能，而不是凭空编一个 id。
+    expect(draft?.skills).toEqual(["docx"]);
+    expect(approvals[0]?.skillsUnknown).toBeUndefined();
+    expect(promptsSeen[0]).toContain("<skills_catalog>");
     expect(employees.list().map((item) => item.displayName)).toEqual(["HR主管"]);
 
     await service.resolveApproval(approvals[0]?.approvalId as string, true);
@@ -149,6 +193,7 @@ describe.skipIf(!liveEnabled)("真机模拟 HR：员工自主发起招人", () =
 
     expect(employees.list().map((item) => item.displayName)).toEqual(["HR主管", "测试员"]);
     expect(employees.getByName("测试员")?.permissions.mode).toBe("workspace-write");
+    expect(employees.getByName("测试员")?.skills).toEqual(["docx"]);
     expect(after.at(-1)?.body).toContain("已通过");
   }, 600000);
 });

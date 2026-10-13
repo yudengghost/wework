@@ -505,6 +505,23 @@ export function RoomView(props: RoomViewProps) {
               </>
             )}
             <div className="why">{approval.summary}</div>
+            {/* 招人申请里真正决定「招来的人能不能干活」的是模型与技能，单独摆出来给审批的人看。 */}
+            {approval.kind === "hire" &&
+              (approval.draft?.model || (approval.draft?.skills?.length ?? 0) > 0) && (
+                <div className="hire-meta">
+                  {approval.draft?.model && (
+                    <span className="tag">模型 {approval.draft.model}</span>
+                  )}
+                  {(approval.draft?.skills ?? []).map((skill) => {
+                    const missing = (approval.skillsUnknown ?? []).includes(skill);
+                    return (
+                      <span key={skill} className={missing ? "tag bad" : "tag"}>
+                        {missing ? `技能缺失 ${skill}` : `技能 ${skill}`}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             {approval.kind === "hire" && approval.draft?.systemPrompt && (
               <div className="why">拟任职责：{approval.draft.systemPrompt}</div>
             )}

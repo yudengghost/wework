@@ -119,6 +119,32 @@ describe("RoomView 审批与 @ 补全", () => {
     expect(screen.getByText(/拟用工作目录：E:\\somewhere\\项目/)).toBeTruthy();
   });
 
+  it("招人审批卡片标出模型与技能，并点明目录里没有的技能", () => {
+    installBridge();
+    const employee = makeEmployee({ displayName: "小码" });
+    const room = makeRoom({ memberIds: [employee.id] });
+    const approval: ApprovalEvent = {
+      approvalId: "appr_2",
+      roomId: room.id,
+      employeeId: employee.id,
+      targetId: "文档专员",
+      summary: "招人申请：文档专员（codex · workspace-write）",
+      kind: "hire",
+      draft: {
+        displayName: "文档专员",
+        framework: "codex",
+        model: "gpt-5-codex",
+        skills: ["docx", "跑得快"],
+      },
+      skillsUnknown: ["跑得快"],
+    };
+    renderRoom(room, { employees: [employee], approvals: [approval] });
+
+    expect(screen.getByText("模型 gpt-5-codex")).toBeTruthy();
+    expect(screen.getByText("技能 docx")).toBeTruthy();
+    expect(screen.getByText("技能缺失 跑得快")).toBeTruthy();
+  });
+
   it("同名成员在 @ 补全里补上 id，避免分不清是谁", () => {
     installBridge();
     const first = makeEmployee({ displayName: "小码" });

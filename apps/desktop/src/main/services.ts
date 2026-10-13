@@ -106,6 +106,8 @@ export async function createServices(): Promise<AppServices> {
       const catalog = await loadSkillCatalog(dataDir, config.get().skills);
       return catalog.filter((skill) => employee.skills.includes(skill.id));
     },
+    // 招人时 HR 要看到全量技能目录才能挑技能，也要用它校验申请里的技能 id。
+    skillCatalog: () => loadSkillCatalog(dataDir, config.get().skills),
     createAdapter: (employee: Employee): Promise<AdapterCreation> =>
       createAdapterForEmployee({ employee, launchers: config.get().launchers }),
   });

@@ -31,6 +31,8 @@ export interface RoomServiceEvents extends Record<string, unknown> {
     /** run = 员工之间的投递；hire = 招人申请。 */
     kind?: "run" | "hire";
     draft?: EmployeeDraft;
+    /** 申请里这些技能 id 在技能目录里不存在（批准也不会生效）。 */
+    skillsUnknown?: string[];
   };
 }
 
@@ -54,6 +56,8 @@ export interface RoomServiceDeps {
   prompts?: PromptPack;
   /** 该员工启用的技能，用于在提示词里告诉它有哪些能力可用。 */
   skillsFor?: (employee: Employee) => Promise<SkillInfo[]>;
+  /** 技能目录全量（含未启用的）。招人时给 HR 挑技能用，也用来校验申请里的技能 id。 */
+  skillCatalog?: () => Promise<SkillInfo[]>;
   events?: EventBus<RoomServiceEvents>;
   now?: () => Date;
 }
@@ -463,6 +467,13 @@ export class RoomService {
 
     const draft = hire.drafts[0] as EmployeeDraft;
     this.hireCounts.set(room.id, used + 1);
+    const skillsUnknown = await this.unknownSkills(draft.skills ?? []);
+    if (skillsUnknown.length > 0) {
+      await this.appendSystemMessage(
+        room.id,
+        render(this.prompts.employeeSkillsUnknown, { list: skillsUnknown.join("、") }),
+      );
+    }
 
     const approvalId = createId("appr");
     const summary = `招人申请：${draft.displayName}（${draft.framework}${
@@ -484,6 +495,7 @@ export class RoomService {
       summary,
       kind: "hire",
       draft,
+      ...(skillsUnknown.length === 0 ? {} : { skillsUnknown }),
     });
   }
 
@@ -724,7 +736,13 @@ export class RoomService {
       ...(memory === "" ? [] : ["", memory]),
       ...(skills === "" ? [] : ["", skills]),
       ...(this.hireGuideEnabled(employee)
-        ? ["", "<hiring>", this.prompts.employeeRequestGuide, "</hiring>"]
+        ? [
+            "",
+            "<hiring>",
+            this.prompts.employeeRequestGuide,
+            await this.hiringSkillsBlock(),
+            "</hiring>",
+          ]
         : []),
       ...(this.hireGuideEnabled(employee)
         ? ["", this.companyBlock(task.roomId, employee, rosterPath)]
@@ -894,6 +912,52 @@ export class RoomService {
       ),
       "</available_skills>",
     ].join("\n");
+  }
+
+  /**
+   * 给 HR 挑技能用的清单。
+   *
+   * 只给 id + 一行说明：够它判断该不该给，又不会像完整 SKILL.md 那样吃掉上下文；
+   * 真正干活的那位员工运行时才会拿到自己启用技能的入口路径。
+   */
+  private async hiringSkillsBlock(): Promise<string> {
+    const catalog = await this.availableSkills();
+    return [
+      "<skills_catalog>",
+      catalog === null
+        ? this.prompts.employeeSkillsUnavailable
+        : catalog.length === 0
+          ? this.prompts.employeeSkillsEmpty
+          : this.prompts.employeeSkillsHeader,
+      ...(catalog ?? []).map(
+        (skill) =>
+          `- ${skill.id}${skill.description ? `：${truncate(oneLine(skill.description), 100)}` : ""}`,
+      ),
+      "</skills_catalog>",
+    ].join("\n");
+  }
+
+  /** 技能目录读不出来时返回 null：分辨得出「没有技能」和「这次没读到」。 */
+  private async availableSkills(): Promise<SkillInfo[] | null> {
+    if (!this.deps.skillCatalog) return null;
+    try {
+      return await this.deps.skillCatalog();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 申请里那些目录中不存在的技能 id。
+   *
+   * 没接目录、或这次没读到目录时不判错——宁可不提醒，也不能把读盘失败说成「技能不存在」。
+   */
+  private async unknownSkills(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const catalog = await this.availableSkills();
+    if (catalog === null) return [];
+    const known = new Set(catalog.map((skill) => skill.id));
+    return ids.filter((id) => !known.has(id));
   }
 
   /**

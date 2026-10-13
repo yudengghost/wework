@@ -42,6 +42,8 @@ interface Harness {
   hires: EmployeeDraft[];
   rosterWrites: RosterEntry[][];
   setSkills: (value: SkillInfo[]) => void;
+  /** 招人时给 HR 看的技能目录；传 "error" 模拟目录读不出来。 */
+  setSkillPool: (value: SkillInfo[] | "error") => void;
 }
 
 type Behavior = (request: AgentRunRequest, employeeId: string) => {
@@ -74,6 +76,7 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
   const cursors = new CursorStore(store, join(workDir, "cursors.json"));
   await cursors.load();
   let skills: SkillInfo[] = [];
+  let skillPool: SkillInfo[] | "error" = [];
 
   const calls: Call[] = [];
   const hires: EmployeeDraft[] = [];
@@ -163,6 +166,8 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
         framework: draft.framework,
         workspaceDir: join(workDir, "ws", draft.displayName),
         stateDir: join(workDir, "state", draft.displayName),
+        model: draft.model,
+        systemPrompt: draft.systemPrompt,
         permissions: { mode: draft.permissionMode ?? "workspace-write" },
         skills: draft.skills ?? [],
       });
@@ -176,6 +181,10 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     },
     skillsFor: async (employee: Employee) =>
       skills.filter((skill) => employee.skills.includes(skill.id)),
+    skillCatalog: async () => {
+      if (skillPool === "error") throw new Error("技能目录读不出来");
+      return skillPool;
+    },
     createAdapter: async (employee: Employee): Promise<AdapterCreation> => ({
       ok: true,
       adapter: makeAdapter(employee.id, employee.displayName),
@@ -201,6 +210,9 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     memory,
     setSkills: (value) => {
       skills = value;
+    },
+    setSkillPool: (value) => {
+      skillPool = value;
     },
   };
 }
@@ -877,6 +889,97 @@ describe("RoomService", () => {
     expect(harness.employees.list().map((item) => item.displayName)).toContain("新招的测试");
     const transcript = await harness.service.listMessages(roomId);
     expect(transcript.some((message) => message.body.includes("已通过"))).toBe(true);
+  });
+
+  it("招人申请能带技能与模型：HR 看得到技能目录，批准后原样落到新员工档案", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setSkillPool([
+      {
+        id: "docx",
+        name: "文档处理",
+        description: "创建与编辑 Word 文档。",
+        source: "framework",
+        entryPath: "C:\\skills\\docx\\SKILL.md",
+      },
+    ]);
+    harness.setBehavior(() => ({
+      text: hireBlock(
+        '{"displayName":"文档专员","framework":"codex","systemPrompt":"负责写交付文档","model":"gpt-5-codex","skills":["docx"]}',
+      ),
+    }));
+    const approvals: {
+      approvalId: string;
+      draft?: EmployeeDraft;
+      skillsUnknown?: string[];
+    }[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招个会写文档的");
+    await harness.service.waitForIdle();
+
+    // 没有这份目录，HR 只能凭空编技能 id
+    expect(harness.calls[0]?.prompt).toContain("<skills_catalog>");
+    expect(harness.calls[0]?.prompt).toContain("docx");
+    expect(approvals[0]?.skillsUnknown).toBeUndefined();
+
+    await harness.service.resolveApproval(approvals[0]?.approvalId as string, true);
+    await harness.service.waitForIdle();
+
+    const hired = harness.employees.getByName("文档专员");
+    expect(hired?.skills).toEqual(["docx"]);
+    expect(hired?.model).toBe("gpt-5-codex");
+    expect(hired?.systemPrompt).toBe("负责写交付文档");
+  });
+
+  it("申请里写了目录里没有的技能：房间里说明它不会生效，审批事件也标出来", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setSkillPool([
+      {
+        id: "docx",
+        name: "文档处理",
+        description: "创建与编辑 Word 文档。",
+        source: "framework",
+        entryPath: "C:\\skills\\docx\\SKILL.md",
+      },
+    ]);
+    harness.setBehavior(() => ({
+      text: hireBlock('{"displayName":"文档专员","framework":"codex","skills":["docx","跑得快"]}'),
+    }));
+    const approvals: { approvalId: string; skillsUnknown?: string[] }[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招个会写文档的");
+    await harness.service.waitForIdle();
+
+    expect(approvals[0]?.skillsUnknown).toEqual(["跑得快"]);
+    const transcript = await harness.service.listMessages(roomId);
+    expect(
+      transcript.some(
+        (message) => message.body.includes("跑得快") && message.body.includes("不会生效"),
+      ),
+    ).toBe(true);
+  });
+
+  it("技能目录读不出来时不误报「技能不存在」", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setSkillPool("error");
+    harness.setBehavior(() => ({
+      text: hireBlock('{"displayName":"文档专员","framework":"codex","skills":["docx"]}'),
+    }));
+    const approvals: { approvalId: string; skillsUnknown?: string[] }[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招个会写文档的");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[0]?.prompt).toContain("<skills_catalog>");
+    expect(harness.calls[0]?.prompt).toContain("技能目录这次没读到");
+    expect(approvals[0]?.skillsUnknown).toBeUndefined();
+    const transcript = await harness.service.listMessages(roomId);
+    expect(transcript.some((message) => message.body.includes("不会生效"))).toBe(false);
   });
 
   it("拒绝则什么都不发生", async () => {

@@ -755,6 +755,14 @@ code {
   margin-top: 2px;
 }
 
+.approval .hire-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+}
+
 .transcript-error {
   margin: 10px 22px 0;
   padding: 10px 12px;

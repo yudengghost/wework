@@ -58,10 +58,14 @@ export interface ApprovalEvent {
     framework: string;
     model?: string;
     systemPrompt?: string;
+    /** 员工自己提出、由用户批准后才会被采用的技能。 */
+    skills?: string[];
     permissionMode?: string;
     /** 员工自己提出、由用户批准后才会被采用的工作目录。 */
     workspaceDir?: string;
   };
+  /** 申请里这些技能 id 在技能目录里不存在（批准也不会生效）。 */
+  skillsUnknown?: string[];
 }
 
 export interface CreateEmployeePayload {

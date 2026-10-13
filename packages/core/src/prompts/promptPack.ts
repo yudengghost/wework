@@ -47,11 +47,24 @@ export const defaultPrompts = {
   employeeRequestGuide: [
     "如果你判断需要一位新同事，可以提交「招人申请」，由用户审批后才会真正创建：",
     "在回复里放一个围栏代码块，语言标记位置写 @@create-employee，块体是这段 JSON：",
-    '{"displayName":"名字","framework":"codex","systemPrompt":"这位同事的职责","permissionMode":"read-only|workspace-write|full"}',
-    "只填用得上的字段：可选的字段（如 model）用不上就整项省略，不要留空字符串。",
+    '{"displayName":"名字","framework":"codex","systemPrompt":"这位同事的完整职责与人设","permissionMode":"read-only|workspace-write|full","model":"可选","skills":["技能id"]}',
+    "只填用得上的字段：可选的字段用不上就整项省略，不要留空字符串。",
+    "systemPrompt 会变成这位同事的长期人设，请写清职责、交付标准与协作方式，而不是一句话职务名。",
+    "skills 只能从下面 <skills_catalog> 里列出的 id 中选，填了目录里没有的 id 不会生效；不确定该不该给就不填。",
+    "招人权（让别人继续招人）只有用户能授予，你写进去也不会生效。",
     "请同时说明为什么要招这个人、以及期望它负责什么；一次最多申请一位。",
     "申请只是提议，用户可能拒绝；不要假设新同事已经存在或已经接手。",
   ].join("\n"),
+  /** 招人时给 HR 看的可选技能清单（只有开启该能力才注入）。 */
+  employeeSkillsHeader:
+    "新同事可以启用下面这些已安装的技能（把技能 id 写进 skills 数组；与岗位无关的不要选，宁少勿多）：",
+  /** 技能目录为空时的说明。 */
+  employeeSkillsEmpty: "（这台机器还没有安装任何技能，本次申请请省略 skills 字段。）",
+  /** 技能目录这次没读出来时的说明：宁可不说，也不要让 HR 凭印象编技能 id。 */
+  employeeSkillsUnavailable: "（技能目录这次没读到，本次申请请省略 skills 字段，不要凭印象编技能 id。）",
+  /** 申请里出现目录中不存在的技能 id 时落在房间里的提醒。占位符：{list} */
+  employeeSkillsUnknown:
+    "招人申请里的技能 {list} 不在技能目录里：即使批准也不会生效，需要先把对应技能装好。",
 
   /** 员工名册（只有被授权招人的员工才看得到）。占位符：{count} */
   companyRosterHeader: "团队现有 {count} 位在册员工（你看得到全体，但只有本房间成员能被你 @ 到）：",
