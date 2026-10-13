@@ -87,4 +87,55 @@ describe("parseCodexLine 对真实事件流", () => {
       { type: "error", message: "模型不可用" },
     ]);
   });
+
+  it("file_change 带出改动的路径与类型", () => {
+    const line =
+      '{"type":"item.completed","item":{"type":"file_change","status":"completed",' +
+      '"changes":[{"path":"src/a.ts","kind":"update"},{"path":"src/b.ts","kind":"add"}]}}';
+    expect(parseCodexLine(line)).toEqual([
+      {
+        type: "tool-result",
+        name: "file_change",
+        ok: true,
+        output: "src/a.ts (update)、src/b.ts (add)",
+      },
+    ]);
+  });
+
+  it("web_search 带出搜索词", () => {
+    const line = '{"type":"item.started","item":{"type":"web_search","query":"wework 图标"}}';
+    expect(parseCodexLine(line)).toEqual([
+      { type: "tool-call", name: "web_search", detail: "wework 图标" },
+    ]);
+  });
+
+  it("mcp_tool_call 带出服务与工具名，出错时 ok 为假", () => {
+    expect(
+      parseCodexLine(
+        '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"fs","tool":"read"}}',
+      ),
+    ).toEqual([{ type: "tool-result", name: "mcp_tool_call", ok: true, output: "fs/read" }]);
+    expect(
+      parseCodexLine(
+        '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"fs","tool":"read","error":"denied"}}',
+      ),
+    ).toEqual([{ type: "tool-result", name: "mcp_tool_call", ok: false, output: "fs/read" }]);
+  });
+
+  it("todo_list 带出清单条目", () => {
+    const line =
+      '{"type":"item.completed","item":{"type":"todo_list","items":[{"text":"读需求"},{"text":"写代码"}]}}';
+    expect(parseCodexLine(line)).toEqual([
+      { type: "tool-call", name: "todo_list", detail: "读需求；写代码" },
+    ]);
+  });
+
+  it("已知类型里字段缺失时只丢 detail，不抛错", () => {
+    expect(parseCodexLine('{"type":"item.started","item":{"type":"file_change"}}')).toEqual([
+      { type: "tool-call", name: "file_change", detail: undefined },
+    ]);
+    expect(parseCodexLine('{"type":"item.completed","item":{"type":"web_search"}}')).toEqual([
+      { type: "tool-result", name: "web_search", ok: true, output: undefined },
+    ]);
+  });
 });

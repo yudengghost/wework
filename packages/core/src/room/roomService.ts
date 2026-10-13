@@ -12,15 +12,34 @@ import type { SkillInfo } from "../skills/skillCatalog";
 import { parseMentions } from "./mentions";
 import { extractEmployeeRequests, type EmployeeDraft } from "./employeeRequest";
 import { createRosterFileWriter, type RosterEntry, type RosterWriter } from "./rosterFile";
+import {
+  RunTraceStore,
+  formatDuration,
+  type RunStatus,
+  type RunStep,
+  type RunTrace,
+} from "./runTrace";
 import type { CursorStore } from "./cursorStore";
 import type { MessageLog } from "./messageLog";
 import type { RoomStore } from "./roomStore";
 
 export interface RoomServiceEvents extends Record<string, unknown> {
   message: Message;
+  /** 受理：消息进队那一刻就发，用户不必等员工开口才知道「收到了」。 */
+  "run-queued": { roomId: string; employeeId: string; runId: string; trigger: string };
   "run-started": { roomId: string; employeeId: string; runId: string };
   "run-text": { roomId: string; employeeId: string; runId: string; delta: string };
-  "run-finished": { roomId: string; employeeId: string; runId: string; ok: boolean; error?: string };
+  /** 运行过程中的一步（调工具 / 工具返回），界面据此显示「它正在干什么」。 */
+  "run-step": { roomId: string; employeeId: string; runId: string; step: RunStep };
+  "run-finished": {
+    roomId: string;
+    employeeId: string;
+    runId: string;
+    ok: boolean;
+    status: RunStatus;
+    elapsedMs: number;
+    error?: string;
+  };
   "run-skipped": { roomId: string; employeeId: string; reason: string };
   "approval-requested": {
     approvalId: string;
@@ -137,12 +156,14 @@ export class RoomService {
   private readonly hireCounts = new Map<string, number>();
   /** 已经提醒过记忆读不出来的员工，避免坏文件把房间刷屏。 */
   private readonly memoryWarningSent = new Set<string>();
+  private readonly traces: RunTraceStore;
   private drainPromise: Promise<void> | null = null;
 
   constructor(private readonly deps: RoomServiceDeps) {
     this.events = deps.events ?? new EventBus<RoomServiceEvents>();
     this.now = deps.now ?? (() => new Date());
     this.prompts = deps.prompts ?? defaultPromptPack();
+    this.traces = new RunTraceStore(this.now);
   }
 
   getEvents(): EventBus<RoomServiceEvents> {
@@ -225,10 +246,50 @@ export class RoomService {
   /** 一键停止：清空队列并中止所有在跑的 run。 */
   stopAll(): number {
     const cancelled = this.queue.length + this.activeRuns.size;
+    // 队列里那些还没开始的：不会再有别的路径来给它们收尾，这里直接结清。
+    for (const task of this.queue) {
+      this.traces.finish(task.runId, {
+        status: "stopped",
+        reason: this.prompts.cancelledByUser,
+      });
+    }
     this.queue.length = 0;
     for (const controller of this.activeRuns.values()) controller.abort();
     this.activeRuns.clear();
     return cancelled;
+  }
+
+  /**
+   * 停止单独一次运行。在跑的中止子进程，还在排队的直接出队。
+   * 这是「不知道它在干嘛，先停下」这条退路的关键一环。
+   */
+  stopRun(runId: string): boolean {
+    const controller = this.activeRuns.get(runId);
+    if (controller) {
+      controller.abort();
+      return true;
+    }
+    const index = this.queue.findIndex((task) => task.runId === runId);
+    if (index === -1) return false;
+    const task = this.queue.splice(index, 1)[0] as RunTask;
+    this.traces.finish(task.runId, { status: "stopped", reason: this.prompts.cancelledByUser });
+    this.events.emit("run-finished", {
+      roomId: task.roomId,
+      employeeId: task.employeeId,
+      runId: task.runId,
+      ok: false,
+      status: "stopped",
+      elapsedMs: 0,
+      error: this.prompts.cancelledByUser,
+    });
+    return true;
+  }
+
+  /** 当前与最近的运行轨迹；界面靠它回答「员工到底在干嘛」。 */
+  snapshotRuns(): RunTrace[] {
+    const positions = new Map<string, number>();
+    this.queue.forEach((task, index) => positions.set(task.runId, index + 1));
+    return this.traces.snapshot(positions);
   }
 
   async waitForIdle(): Promise<void> {
@@ -328,13 +389,28 @@ export class RoomService {
 
   private enqueue(input: Omit<RunTask, "runId">): void {
     const { scheduler } = this.deps.config.get();
+    // 只留一行摘要：轨迹记录是给用户认出「这是哪条任务」用的。
+    const trigger = input.trigger.body;
+    const reject = (reason: string): void => {
+      // 没进队的任务也要留下记录：用户看到的应当是「受理了但没跑」，
+      // 而不是一片沉默——这正是「不知道有没有干活」的来源之一。
+      this.traces.record({
+        runId: createId("run"),
+        roomId: input.roomId,
+        employeeId: input.employeeId,
+        trigger: input.trigger.body,
+        status: "skipped",
+        reason,
+      });
+      this.skip(input.roomId, input.employeeId, reason);
+    };
 
     if (input.turn.remainingRuns <= 0) {
-      this.skip(input.roomId, input.employeeId, "本轮运行次数已达上限");
+      reject("本轮运行次数已达上限");
       return;
     }
     if (input.depth > scheduler.maxMentionDepth) {
-      this.skip(input.roomId, input.employeeId, "@ 接续层数超出上限");
+      reject("@ 接续层数超出上限");
       return;
     }
 
@@ -345,13 +421,27 @@ export class RoomService {
     this.pruneRecentTriggers(at, scheduler.dedupeWindowMs);
     const previous = this.recentTriggers.get(dedupeKey);
     if (previous !== undefined && at - previous < scheduler.dedupeWindowMs) {
-      this.skip(input.roomId, input.employeeId, "重复消息已忽略");
+      reject(`同一条消息 ${Math.max(1, Math.round((at - previous) / 1000))} 秒内重复发送，已按去重规则忽略`);
       return;
     }
     this.recentTriggers.set(dedupeKey, at);
 
     input.turn.remainingRuns -= 1;
-    this.queue.push({ ...input, runId: createId("run") });
+    const task: RunTask = { ...input, runId: createId("run") };
+    this.queue.push(task);
+    this.traces.queue({
+      runId: task.runId,
+      roomId: task.roomId,
+      employeeId: task.employeeId,
+      trigger,
+    });
+    this.traces.step(task.runId, { kind: "queued" });
+    this.events.emit("run-queued", {
+      roomId: task.roomId,
+      employeeId: task.employeeId,
+      runId: task.runId,
+      trigger,
+    });
   }
 
   /** 去重表只服务于那一小段窗口：过期条目留着没有用，清掉免得长会话里无限增长。 */
@@ -364,6 +454,33 @@ export class RoomService {
 
   private skip(roomId: string, employeeId: string, reason: string): void {
     this.events.emit("run-skipped", { roomId, employeeId, reason });
+  }
+
+  /**
+   * 已入队但没能跑起来（员工被删、CLI 找不到…）。
+   *
+   * 这类失败以前只发一个 6 秒的提示条：用户没盯着看就等于没发生，
+   * 而它恰恰是「发完消息什么反应都没有」最常见的原因之一。
+   */
+  private async giveUp(task: RunTask, reason: string): Promise<void> {
+    const employee = this.deps.employees.get(task.employeeId);
+    this.traces.finish(task.runId, { status: "skipped", reason });
+    this.events.emit("run-finished", {
+      roomId: task.roomId,
+      employeeId: task.employeeId,
+      runId: task.runId,
+      ok: false,
+      status: "skipped",
+      elapsedMs: 0,
+      error: reason,
+    });
+    await this.appendSystemMessage(
+      task.roomId,
+      render(this.prompts.runCannotStartNotice, {
+        employee: employee?.displayName ?? task.employeeId,
+        reason,
+      }),
+    ).catch(() => undefined);
   }
 
   private requestApproval(
@@ -555,28 +672,30 @@ export class RoomService {
   private async executeRun(task: RunTask): Promise<void> {
     const employee = this.deps.employees.get(task.employeeId);
     if (!employee) {
-      this.skip(task.roomId, task.employeeId, "员工不存在");
+      await this.giveUp(task, "员工不存在");
       return;
     }
     if (employee.removedAt) {
       // 员工已被移出名册：不再为它跑任务，历史记录保持可读。
-      this.skip(task.roomId, task.employeeId, "员工已被移除");
+      await this.giveUp(task, "员工已被移除");
       return;
     }
 
     const created = await this.deps.createAdapter(employee);
     if (!created.ok) {
-      this.skip(task.roomId, task.employeeId, created.reason);
+      await this.giveUp(task, created.reason);
       return;
     }
 
     const controller = new AbortController();
     this.activeRuns.set(task.runId, controller);
+    this.traces.start(task.runId);
     this.events.emit("run-started", {
       roomId: task.roomId,
       employeeId: task.employeeId,
       runId: task.runId,
     });
+    const startedAt = this.now().getTime();
 
     try {
       // 附件复制进员工工作目录，这样它在 cwd 内就能直接读到；图片还会作为原生图片入参。
@@ -619,17 +738,36 @@ export class RoomService {
       }
 
       if (!result.ok) {
+        const error = result.cancelled
+          ? this.prompts.cancelledByUser
+          : result.timedOut
+            ? this.prompts.runTimedOut
+            : oneLine(truncate(result.stderr.trim() || "运行失败", 200));
+        const elapsedMs = this.now().getTime() - startedAt;
+        this.traces.finish(task.runId, {
+          status: result.cancelled ? "stopped" : "failed",
+          error,
+        });
         this.events.emit("run-finished", {
           roomId: task.roomId,
           employeeId: task.employeeId,
           runId: task.runId,
           ok: false,
-          error: result.cancelled
-            ? "已取消"
-            : result.timedOut
-              ? "运行超时"
-              : result.stderr.trim() || "运行失败",
+          status: result.cancelled ? "stopped" : "failed",
+          elapsedMs,
+          error,
         });
+        // 用户自己按的停止不必再解释一遍；它是主动动作，不像失败那样意外。
+        if (!result.cancelled) {
+          await this.appendSystemMessage(
+            task.roomId,
+            render(this.prompts.runFailedNotice, {
+              employee: employee.displayName,
+              duration: formatDuration(elapsedMs),
+              error,
+            }),
+          );
+        }
         return;
       }
 
@@ -654,22 +792,49 @@ export class RoomService {
         }
       }
 
+      const elapsedMs = this.now().getTime() - startedAt;
+      this.traces.finish(task.runId, { status: "done" });
       this.events.emit("run-finished", {
         roomId: task.roomId,
         employeeId: task.employeeId,
         runId: task.runId,
         ok: true,
+        status: "done",
+        elapsedMs,
       });
+      if (body === "") {
+        // 退出码 0 但一个字都没说：旧版就是在这里彻底沉默，用户只能干等。
+        await this.appendSystemMessage(
+          task.roomId,
+          render(this.prompts.runNoOutputNotice, {
+            employee: employee.displayName,
+            duration: formatDuration(elapsedMs),
+          }),
+        );
+      }
       // 记忆写入与归纳都算这位员工仍在忙：串在本次运行之后，不会和下一次运行撞车。
       await this.recordMemory(task, employee, body);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const elapsedMs = this.now().getTime() - startedAt;
+      this.traces.finish(task.runId, { status: "failed", error: message });
       this.events.emit("run-finished", {
         roomId: task.roomId,
         employeeId: task.employeeId,
         runId: task.runId,
         ok: false,
-        error: error instanceof Error ? error.message : String(error),
+        status: "failed",
+        elapsedMs,
+        error: message,
       });
+      await this.appendSystemMessage(
+        task.roomId,
+        render(this.prompts.runFailedNotice, {
+          employee: employee.displayName,
+          duration: formatDuration(elapsedMs),
+          error: oneLine(truncate(message, 200)),
+        }),
+      ).catch(() => undefined);
     } finally {
       this.activeRuns.delete(task.runId);
     }
@@ -707,13 +872,44 @@ export class RoomService {
 
   private forwardEvent(task: RunTask, event: AgentEvent): void {
     if (event.type === "text" || event.type === "reasoning") {
+      this.traces.appendText(task.runId, event.text);
       this.events.emit("run-text", {
         roomId: task.roomId,
         employeeId: task.employeeId,
         runId: task.runId,
         delta: event.text,
       });
+      return;
     }
+    // 工具调用是「员工正在干什么」最直接的证据：以前它在这里被丢掉，
+    // 界面上只剩一个不动的「正在思考…」。
+    if (event.type === "tool-call") {
+      this.pushStep(task, { kind: "tool", tool: event.name, detail: event.detail });
+      return;
+    }
+    if (event.type === "tool-result") {
+      this.pushStep(task, {
+        kind: "result",
+        ...(event.name === undefined ? {} : { tool: event.name }),
+        ok: event.ok,
+        ...(event.output === undefined ? {} : { detail: event.output }),
+      });
+      return;
+    }
+    if (event.type === "error") {
+      this.pushStep(task, { kind: "note", text: oneLine(truncate(event.message, 200)) });
+    }
+  }
+
+  private pushStep(task: RunTask, step: Omit<RunStep, "at">): void {
+    const stored = this.traces.step(task.runId, step);
+    if (!stored) return;
+    this.events.emit("run-step", {
+      roomId: task.roomId,
+      employeeId: task.employeeId,
+      runId: task.runId,
+      step: stored,
+    });
   }
 
   private async buildPrompt(

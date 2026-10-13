@@ -26,6 +26,7 @@ export * from "./room/mentions";
 export * from "./room/cursorStore";
 export * from "./room/employeeRequest";
 export * from "./room/rosterFile";
+export * from "./room/runTrace";
 export * from "./room/roomService";
 export * from "./memory/memoryStore";
 export * from "./skills/skillCatalog";

@@ -1,7 +1,8 @@
-import type { WeworkConfig, Employee, Message, Room } from "@wework/core";
+import type { WeworkConfig, Employee, Message, Room, RunTrace } from "@wework/core";
 import { defaultConfig } from "@wework/core";
+import { act } from "@testing-library/react";
 
-import type { Bootstrap } from "../api";
+import type { Bootstrap, RunEvent } from "../api";
 
 // jsdom 没有 ResizeObserver，而虚拟列表用它观察视口与行高。给个最小替身就够了：
 // jsdom 本来也没有真实布局，行高会一直用估算值。
@@ -40,6 +41,9 @@ export interface FakeBridge {
   calls: BridgeCall[];
   /** 按通道准备返回值；返回 rejected promise 即模拟主进程报错。 */
   handlers: Map<string, (payload: unknown) => unknown>;
+  /** 回放一条主进程 → 渲染层的推送（运行事件 / 消息），用来验证界面反应。 */
+  emitRun(event: RunEvent): void;
+  emitMessage(message: Message): void;
 }
 
 /**
@@ -51,6 +55,18 @@ export interface FakeBridge {
 export function installBridge(): FakeBridge {
   const calls: BridgeCall[] = [];
   const handlers = new Map<string, (payload: unknown) => unknown>();
+  const runHandlers: ((event: RunEvent) => void)[] = [];
+  const messageHandlers: ((message: Message) => void)[] = [];
+
+  function listen<T>(bucket: ((payload: T) => void)[]) {
+    return (handler: (payload: T) => void): (() => void) => {
+      bucket.push(handler);
+      return () => {
+        const index = bucket.indexOf(handler);
+        if (index >= 0) bucket.splice(index, 1);
+      };
+    };
+  }
 
   window.wework = {
     invoke: <TResult>(channel: string, payload?: unknown): Promise<TResult> => {
@@ -59,13 +75,26 @@ export function installBridge(): FakeBridge {
       if (!handler) return Promise.resolve(undefined as TResult);
       return Promise.resolve(handler(payload) as TResult);
     },
-    onMessage: () => () => undefined,
-    onRun: () => () => undefined,
+    onMessage: listen(messageHandlers),
+    onRun: listen(runHandlers),
     onApproval: () => () => undefined,
     pathForFile: () => "",
   };
 
-  return { calls, handlers };
+  return {
+    calls,
+    handlers,
+    emitRun: (event) => {
+      act(() => {
+        for (const handler of [...runHandlers]) handler(event);
+      });
+    },
+    emitMessage: (message) => {
+      act(() => {
+        for (const handler of [...messageHandlers]) handler(message);
+      });
+    },
+  };
 }
 
 let sequence = 0;
@@ -121,6 +150,23 @@ export function makeMessage(patch: Partial<Message> = {}): Message {
 
 export function makeConfig(): WeworkConfig {
   return defaultConfig();
+}
+
+export function makeTrace(patch: Partial<RunTrace> = {}): RunTrace {
+  sequence += 1;
+  return {
+    runId: `run_${sequence}`,
+    roomId: "room_x",
+    employeeId: "emp_1",
+    trigger: "帮我干活",
+    status: "running",
+    queuedAt: "2026-10-13T10:00:00.000Z",
+    startedAt: "2026-10-13T10:00:02.000Z",
+    steps: [],
+    text: "",
+    textTruncated: false,
+    ...patch,
+  };
 }
 
 export function makeBootstrap(patch: Partial<Bootstrap> = {}): Bootstrap {

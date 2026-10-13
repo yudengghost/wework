@@ -103,6 +103,24 @@ export const defaultPrompts = {
 
   /** 员工职责随提示词一起投递时的包裹。占位符：{role} */
   roleWrapper: "<employee_role>\n{role}\n</employee_role>",
+
+  /*
+   * 运行状态的说明文字（落在房间里，给人看）。
+   *
+   * 这些文案存在的意义是「绝不静默」：一次运行无论成功、失败、跑不出东西
+   * 还是根本没启动起来，房间里都必须留下一条可读的交代，否则用户只能
+   * 对着一个不动的气泡猜「它到底有没有在干活」。
+   */
+  /** 用户主动停止时记在轨迹里的原因。 */
+  cancelledByUser: "已被用户停止",
+  runTimedOut: "运行超时",
+  /** 运行失败。占位符：{employee} {duration} {error} */
+  runFailedNotice: "「{employee}」这次运行失败了（耗时 {duration}）：{error}",
+  /** 退出码正常、但一个字都没说。占位符：{employee} {duration} */
+  runNoOutputNotice:
+    "「{employee}」这次运行结束了，但没有产出任何回复内容（耗时 {duration}）。这不是正常情况：点开输入框上方的「运行轨迹」可以看到它实际做了什么。",
+  /** 已受理但没跑起来（员工被删、CLI 找不到…）。占位符：{employee} {reason} */
+  runCannotStartNotice: "「{employee}」没能开始工作：{reason}",
 } as const;
 
 // `-readonly`：同态映射默认会继承默认值对象的 readonly 修饰符，那样就改不了覆盖值了。

@@ -57,6 +57,8 @@ type Behavior = (request: AgentRunRequest, employeeId: string) => {
   ok?: boolean;
   error?: string;
   delayMs?: number;
+  /** 这次运行中先发出来的适配器事件（工具调用等），用来验证轨迹。 */
+  events?: AgentEvent[];
 };
 
 let workDir: string;
@@ -69,7 +71,9 @@ afterEach(async () => {
   await rm(workDir, { recursive: true, force: true });
 });
 
-async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harness> {
+async function makeHarness(
+  options: { behavior?: Behavior; adapterFailure?: string } = {},
+): Promise<Harness> {
   const store = new FileStore();
   const config = new ConfigStore(store, join(workDir, "config.json"));
   await config.load();
@@ -140,6 +144,7 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
             stderr: "",
           };
         }
+        for (const event of outcome.events ?? []) onEvent?.(event);
         onEvent?.({ type: "text", text: outcome.text });
         return {
           framework: "codex",
@@ -197,10 +202,10 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
       if (skillPool === "error") throw new Error("技能目录读不出来");
       return skillPool;
     },
-    createAdapter: async (employee: Employee): Promise<AdapterCreation> => ({
-      ok: true,
-      adapter: makeAdapter(employee.id, employee.displayName),
-    }),
+    createAdapter: async (employee: Employee): Promise<AdapterCreation> =>
+      options.adapterFailure === undefined
+        ? { ok: true, adapter: makeAdapter(employee.id, employee.displayName) }
+        : { ok: false, reason: options.adapterFailure },
   });
 
   return {
@@ -850,7 +855,7 @@ describe("RoomService", () => {
     expect(await harness.service.listMessages(room.id)).toHaveLength(1);
   });
 
-  it("员工没有产出文本时不落消息、不记记忆，但游标仍推进", async () => {
+  it("员工没有产出文本时：落一条说明、不记记忆，但游标仍推进", async () => {
     const harness = await makeHarness();
     const { roomId, coder } = await seedTeam(harness);
     harness.setBehavior(() => ({ text: "   " }));
@@ -858,7 +863,11 @@ describe("RoomService", () => {
     const human = await harness.service.submitHumanMessage(roomId, "@小码 干点什么");
     await harness.service.waitForIdle();
 
-    expect(await harness.service.listMessages(roomId)).toHaveLength(1);
+    // 空运行旧版是彻底沉默的：房间里只留下提问，用户无法分辨「没干活」和「干完了没说」。
+    const messages = await harness.service.listMessages(roomId);
+    expect(messages).toHaveLength(2);
+    expect(messages[1]?.kind).toBe("system");
+    expect(messages[1]?.body).toContain("没有产出任何回复内容");
     expect(await harness.memory.countPending(coder.id)).toBe(0);
     expect(harness.cursors.get(coder.id, roomId)).toBe(human.id);
   });
@@ -1216,3 +1225,135 @@ describe("RoomService", () => {
     expect(write.find((entry) => entry.displayName === "数据同事")?.role).toBe(longRole);
   });
 });
+
+describe("运行可见性：用户必须看得出员工在不在干活", () => {
+  it("消息一受理就发 run-queued，且发生在 run-started 之前", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({ text: "干完了", delayMs: 20 }));
+    const seen: string[] = [];
+    harness.events.on("run-queued", (payload) => seen.push(`queued:${payload.employeeId}`));
+    harness.events.on("run-started", (payload) => seen.push(`started:${payload.employeeId}`));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 干活");
+    await harness.service.waitForIdle();
+
+    expect(seen[0]).toMatch(/^queued:/);
+    expect(seen[1]).toMatch(/^started:/);
+  });
+
+  it("还没轮到跑的运行能查到排队位置，开跑之后位置消失", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    await harness.config.update({ scheduler: { maxConcurrentRuns: 1 } });
+    harness.setBehavior(() => ({ text: "干完了", delayMs: 250 }));
+
+    await harness.service.submitHumanMessage(roomId, "@all 各自干活");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const busy = harness.service.snapshotRuns();
+    expect(busy.filter((trace) => trace.status === "running")).toHaveLength(1);
+    const waiting = busy.find((trace) => trace.status === "queued");
+    expect(waiting?.position).toBe(1);
+    expect(waiting?.trigger).toBe("@all 各自干活");
+
+    await harness.service.waitForIdle();
+    expect(harness.service.snapshotRuns().every((trace) => trace.status === "done")).toBe(true);
+  });
+
+  it("失败的运行在房间里留下带耗时的说明，而不是一片沉默", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({ text: "", ok: false, error: "401 Unauthorized" }));
+    const finished: { status: string; elapsedMs: number }[] = [];
+    harness.events.on("run-finished", (payload) =>
+      finished.push({ status: payload.status, elapsedMs: payload.elapsedMs }),
+    );
+
+    await harness.service.submitHumanMessage(roomId, "@小码 干活");
+    await harness.service.waitForIdle();
+
+    const messages = await harness.service.listMessages(roomId);
+    expect(messages).toHaveLength(2);
+    expect(messages[1]?.kind).toBe("system");
+    expect(messages[1]?.body).toContain("「小码」这次运行失败了");
+    expect(messages[1]?.body).toContain("401 Unauthorized");
+    expect(messages[1]?.body).toContain("耗时");
+    expect(finished).toEqual([{ status: "failed", elapsedMs: expect.any(Number) }]);
+    expect(harness.service.snapshotRuns()[0]?.status).toBe("failed");
+  });
+
+  it("工具调用进入运行轨迹，并逐个发出 run-step", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({
+      text: "测试通过",
+      events: [
+        { type: "tool-call", name: "command_execution", detail: "npm test" },
+        { type: "tool-result", name: "command_execution", ok: true, output: "12 passed" },
+        { type: "tool-call", name: "file_change", detail: "src/a.ts (update)" },
+      ],
+    }));
+    const steps: string[] = [];
+    harness.events.on("run-step", (payload) =>
+      steps.push(`${payload.step.kind}:${payload.step.tool ?? payload.step.text ?? ""}`),
+    );
+
+    await harness.service.submitHumanMessage(roomId, "@小码 干活");
+    await harness.service.waitForIdle();
+
+    expect(steps).toEqual([
+      "tool:command_execution",
+      "result:command_execution",
+      "tool:file_change",
+    ]);
+    const [trace] = harness.service.snapshotRuns();
+    expect(trace?.steps.map((step) => step.kind)).toEqual([
+      "queued",
+      "started",
+      "tool",
+      "result",
+      "tool",
+    ]);
+    expect(trace?.steps[2]?.detail).toBe("npm test");
+    expect(trace?.text).toBe("测试通过");
+  });
+
+  it("启动器没找到：房间说明原因，轨迹记为未跑起来", async () => {
+    const harness = await makeHarness({
+      adapterFailure: "未找到 codex 可执行文件，请在设置里手动指定路径",
+    });
+    const { roomId } = await seedTeam(harness);
+
+    await harness.service.submitHumanMessage(roomId, "@小码 干活");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls).toEqual([]);
+    const messages = await harness.service.listMessages(roomId);
+    expect(messages[1]?.body).toContain("「小码」没能开始工作");
+    expect(messages[1]?.body).toContain("未找到 codex 可执行文件");
+    const [trace] = harness.service.snapshotRuns();
+    expect(trace?.status).toBe("skipped");
+    expect(trace?.reason).toContain("未找到 codex");
+  });
+
+  it("stopRun 只停指定的那一次运行，且不写失败说明", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({ text: "不该产出", delayMs: 30000 }));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 长任务");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const running = harness.service.snapshotRuns().find((trace) => trace.status === "running");
+    expect(running).toBeDefined();
+
+    expect(harness.service.stopRun(running?.runId ?? "")).toBe(true);
+    await harness.service.waitForIdle();
+
+    expect(harness.service.snapshotRuns()[0]?.status).toBe("stopped");
+    // 用户自己按的停止不需要再解释一遍，房间保持干净
+    expect(await harness.service.listMessages(roomId)).toHaveLength(1);
+    expect(harness.service.stopRun("run_不存在")).toBe(false);
+  });
+});
+

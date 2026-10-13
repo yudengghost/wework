@@ -6,6 +6,8 @@ import type {
   Message,
   PermissionMode,
   Room,
+  RunStep,
+  RunTrace,
   SkillInfo,
 } from "@wework/core";
 
@@ -35,12 +37,19 @@ export interface MemorySnapshot {
 }
 
 export interface RunEvent {
-  kind: "started" | "text" | "finished" | "skipped";
+  kind: "queued" | "started" | "text" | "step" | "finished" | "skipped";
   roomId: string;
   employeeId: string;
   runId?: string;
   delta?: string;
+  /** queued：触发这次运行的消息摘要。 */
+  trigger?: string;
+  /** step：刚刚发生的一步。 */
+  step?: RunStep;
   ok?: boolean;
+  status?: RunTrace["status"];
+  /** 本次运行的总用时。 */
+  elapsedMs?: number;
   error?: string;
   reason?: string;
 }
@@ -126,6 +135,9 @@ export const api = {
   pickFiles: () => window.wework.invoke<{ name: string; sourcePath: string }[]>("files:pick"),
   pathForFile: (file: File) => window.wework.pathForFile(file),
   stopAll: () => window.wework.invoke<{ cancelled: number }>("run:stopAll"),
+  /** 当前与最近的运行轨迹（含排队中的）。 */
+  runs: () => window.wework.invoke<RunTrace[]>("runs:snapshot"),
+  stopRun: (runId: string) => window.wework.invoke<{ stopped: boolean }>("run:stop", { runId }),
   resolveApproval: (approvalId: string, approved: boolean) =>
     window.wework.invoke<boolean>("approval:resolve", { approvalId, approved }),
   skillsCatalog: () => window.wework.invoke<SkillInfo[]>("skills:catalog"),

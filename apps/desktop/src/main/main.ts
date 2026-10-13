@@ -220,7 +220,9 @@ void app
               const shotJs = process.env.WEWORK_SMOKE_SHOT_JS;
               if (shotJs) {
                 // 允许在截图前执行任意脚本，例如展开所有折叠区再截图。
-                await window?.webContents.executeJavaScript(shotJs);
+                // 脚本的返回值写进日志：它是「截图里到底发生了什么」的证据。
+                const result = await window?.webContents.executeJavaScript(shotJs);
+                trace(`shot js: ${String(result)}`);
                 await new Promise((resolve) => setTimeout(resolve, 1100));
               } else if (clickSelector) {
                 await window?.webContents.executeJavaScript(

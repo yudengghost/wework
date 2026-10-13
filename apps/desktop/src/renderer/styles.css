@@ -839,6 +839,255 @@ code {
   background: var(--surface);
 }
 
+/* ---- 运行轨迹：回答「员工到底在不在干活」 ----
+   规则沿用同一套：白底 + 1px 描边 + 灰阶层级；唯一的彩色是状态点，
+   而它只在 opacity 上循环（尊重 prefers-reduced-motion）。 */
+
+.run-bar {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 3px 10px;
+  padding: 6px 18px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+
+.run-row {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  min-width: 0;
+}
+
+.run-toggle {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  padding: 1px 6px;
+}
+
+.run-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.run-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-sm);
+  background: var(--text-faint);
+}
+
+.run-dot.running,
+.busy-dot {
+  background: var(--blue);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.run-dot.queued {
+  background: var(--yellow);
+}
+
+.run-dot.done {
+  background: var(--green);
+}
+
+.run-dot.failed,
+.run-dot.skipped {
+  background: var(--red);
+}
+
+.run-name {
+  flex: none;
+  font-weight: 600;
+}
+
+.run-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-clock {
+  flex: none;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.link-btn {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--blue-ink);
+  padding: 1px 6px;
+}
+
+.link-btn:hover {
+  background: var(--blue-bg);
+}
+
+/* 展开的逐步轨迹：默认收起，只有主动点开才占地方 */
+.run-trace {
+  flex: none;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px 18px 10px;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+
+.trace-item {
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+
+.trace-item:first-child {
+  border-top: 0;
+}
+
+.trace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  min-width: 0;
+}
+
+.trace-who {
+  flex: none;
+  font-weight: 600;
+}
+
+.trace-trigger {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-why {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--red-ink);
+}
+
+.trace-steps {
+  list-style: none;
+  margin: 5px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.trace-steps li {
+  display: flex;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.trace-steps li::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-top: 7px;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+
+/* 命令与路径可能很长：最多两行，超出省略，完整内容在 title 里。 */
+.trace-steps li > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.trace-steps li.tool::before {
+  background: var(--blue);
+}
+
+.trace-steps li.started::before,
+.trace-steps li.result::before {
+  background: var(--green);
+}
+
+/* 状态标签 */
+.run-state {
+  flex: none;
+  font-size: 11.5px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--line);
+  color: var(--text-dim);
+}
+
+.run-state.running {
+  background: var(--blue-bg);
+  color: var(--blue-ink);
+}
+
+.run-state.queued {
+  background: var(--yellow-bg);
+  color: var(--yellow-ink);
+}
+
+.run-state.done {
+  background: var(--green-bg);
+  color: var(--green-ink);
+}
+
+.run-state.failed,
+.run-state.skipped {
+  background: var(--red-bg);
+  color: var(--red-ink);
+}
+
+/* 会话里的那一行：当前动作 + 已写出的内容 */
+.run-now {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.run-now-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.run-preview {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.live-badge .run-clock {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.busy-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-sm);
+}
+
 .composer-row {
   display: flex;
   gap: 6px;
@@ -1041,6 +1290,11 @@ code {
 .tag.bad {
   background: var(--red-bg);
   color: var(--red-ink);
+}
+
+.tag.warn {
+  background: var(--yellow-bg);
+  color: var(--yellow-ink);
 }
 
 .chip {

@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { App } from "./App";
-import { installBridge, makeBootstrap, makeEmployee } from "./tests/support";
+import { installBridge, makeBootstrap, makeEmployee, makeRoom, makeTrace } from "./tests/support";
 
 afterEach(() => {
   cleanup();
@@ -31,5 +31,66 @@ describe("应用外壳", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText(/1 名员工/)).toBeTruthy());
+  });
+
+  it("有运行在跑时：标题行给出在跑的数量，侧栏对应房间点亮小圆点", async () => {
+    const bridge = installBridge();
+    const employee = makeEmployee({ displayName: "小码" });
+    const room = makeRoom({ name: "发布检查", memberIds: [employee.id] });
+    bridge.handlers.set("app:bootstrap", () =>
+      makeBootstrap({ employees: [employee], rooms: [room] }),
+    );
+    bridge.handlers.set("runs:snapshot", () => [
+      makeTrace({ roomId: room.id, employeeId: employee.id }),
+    ]);
+    const { container } = render(<App />);
+
+    await waitFor(() => expect(screen.getByText(/1 个运行进行中/)).toBeTruthy());
+    expect(container.querySelector(".busy-dot")).toBeTruthy();
+  });
+
+  it("没有运行在跑时不提「进行中」，也不点亮圆点", async () => {
+    const bridge = installBridge();
+    const employee = makeEmployee({ displayName: "小码" });
+    const room = makeRoom({ name: "发布检查", memberIds: [employee.id] });
+    bridge.handlers.set("app:bootstrap", () =>
+      makeBootstrap({ employees: [employee], rooms: [room] }),
+    );
+    bridge.handlers.set("runs:snapshot", () => [
+      makeTrace({ roomId: room.id, status: "done", finishedAt: "2026-10-13T10:05:00.000Z" }),
+    ]);
+    const { container } = render(<App />);
+
+    await waitFor(() => expect(screen.getByText(/1 名员工/)).toBeTruthy());
+    expect(screen.queryByText(/运行进行中/)).toBeNull();
+    expect(container.querySelector(".busy-dot")).toBeNull();
+  });
+
+  it("用户主动停止的运行不弹「运行失败」警报", async () => {
+    const bridge = installBridge();
+    bridge.handlers.set("app:bootstrap", () => makeBootstrap());
+    render(<App />);
+    await waitFor(() => expect(screen.getAllByText("Wework").length).toBeGreaterThan(0));
+
+    // 主进程回放两条收尾事件：一条真失败、一条用户停止。
+    bridge.emitRun({
+      kind: "finished",
+      roomId: "room_x",
+      employeeId: "emp_1",
+      ok: false,
+      status: "failed",
+      error: "401",
+    });
+    bridge.emitRun({
+      kind: "finished",
+      roomId: "room_x",
+      employeeId: "emp_1",
+      ok: false,
+      status: "stopped",
+      error: "已被用户停止",
+    });
+
+    await waitFor(() => expect(screen.getByText(/运行失败/)).toBeTruthy());
+    expect(screen.queryByText(/已被用户停止/)).toBeNull();
   });
 });

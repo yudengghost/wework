@@ -1,4 +1,4 @@
-import type { Employee, Message } from "@wework/core";
+import type { Employee, Message, RunTrace } from "@wework/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent, type Bootstrap } from "./api";
@@ -10,6 +10,7 @@ import {
   SettingsPanel,
 } from "./Panels";
 import { RoomView } from "./RoomView";
+import { isActive } from "./runActivity";
 import {
   AlertIcon,
   Avatar,
@@ -31,8 +32,13 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [streams, setStreams] = useState<Record<string, string>>({});
-  const [running, setRunning] = useState<Record<string, boolean>>({});
+  /**
+   * 运行轨迹是「员工在不在干活」唯一的真相来源。
+   * 主进程持有它，这里只做展示——切换房间、重读界面都不会丢。
+   */
+  const [runs, setRuns] = useState<RunTrace[]>([]);
+  /** 本地时钟：给轨迹计时用。只在有运行在跑时才走，闲时不产生任何重渲染。 */
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [notices, setNotices] = useState<{ id: number; text: string }[]>([]);
   const noticeSeq = useRef(0);
   const noticeTimers = useRef<number[]>([]);
@@ -94,6 +100,34 @@ export function App() {
     void reload();
   }, [reload]);
 
+  const runsTimer = useRef<number | null>(null);
+
+  /** 主进程是轨迹的唯一持有者，这里只负责把它取回来。 */
+  const refreshRuns = useCallback(async () => {
+    try {
+      const next = await api.runs();
+      setRuns(Array.isArray(next) ? next : []);
+    } catch {
+      // 轨迹取不到不该影响主流程：下一次运行事件会再试一遍。
+    }
+  }, []);
+
+  /** 一个命令密集的员工可能连续发很多步，合并到 120ms 一次。 */
+  const scheduleRunsRefresh = useCallback(() => {
+    if (runsTimer.current !== null) return;
+    runsTimer.current = window.setTimeout(() => {
+      runsTimer.current = null;
+      void refreshRuns();
+    }, 120);
+  }, [refreshRuns]);
+
+  useEffect(() => {
+    void refreshRuns();
+    return () => {
+      if (runsTimer.current !== null) window.clearTimeout(runsTimer.current);
+    };
+  }, [refreshRuns]);
+
   useEffect(() => {
     roomRef.current = selectedRoomId;
     if (!selectedRoomId) {
@@ -133,30 +167,15 @@ export function App() {
     });
 
     const offRun = window.wework.onRun((event) => {
-      if (event.kind === "started") {
-        setRunning((prev) => ({ ...prev, [event.employeeId]: true }));
-        return;
-      }
-      if (event.kind === "text") {
-        if (event.roomId !== roomRef.current) return;
-        setStreams((prev) => ({
-          ...prev,
-          [event.employeeId]: `${prev[event.employeeId] ?? ""}${event.delta ?? ""}`,
-        }));
-        return;
-      }
+      // 任何一次运行状态变化都重取快照：排队、开跑、调工具、结束。
+      // 合并到下一帧，避免一个命令密集的员工把 IPC 打满。
+      if (event.kind !== "skipped") scheduleRunsRefresh();
       if (event.kind === "finished") {
-        setRunning((prev) => ({ ...prev, [event.employeeId]: false }));
-        setStreams((prev) => {
-          const next = { ...prev };
-          delete next[event.employeeId];
-          return next;
-        });
-        if (!event.ok) {
+        // 用户自己按的停止不算「失败」：房间与运行条都已经如实写了「已停止」，
+        // 再弹一条红色警报只会让人以为程序出了问题。
+        if (!event.ok && event.status !== "stopped") {
           pushNotice(`${labelOf(event.employeeId)} 运行失败：${event.error ?? "未知原因"}`);
         }
-        // 不再重拉整份历史：员工的回复已经通过 message 事件增量到达，
-        // 每完成一次运行就全量读一遍房间只是浪费。
         return;
       }
       if (event.kind === "skipped") {
@@ -173,7 +192,20 @@ export function App() {
       offRun();
       offApproval();
     };
-  }, [labelOf, pushNotice]);
+  }, [labelOf, pushNotice, scheduleRunsRefresh]);
+
+  const activeRuns = runs.filter(isActive);
+
+  /**
+   * 秒表只在真的有运行在跑时走。
+   * 常量级开销，但避免闲时每秒白重渲染一次整个界面。
+   */
+  useEffect(() => {
+    if (activeRuns.length === 0) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [activeRuns.length]);
 
   const createRoom = (): void => setCreateRoomOpen(true);
 
@@ -198,7 +230,15 @@ export function App() {
   const groupRooms = boot?.rooms.filter((room) => room.kind !== "direct") ?? [];
   const directRoomOf = (employeeId: string) =>
     directRooms.find((room) => room.memberIds[0] === employeeId);
-  const streamingIds = Object.keys(streams);
+  /** 有运行在跑的房间：侧栏据此显示一个小圆点，一眼看出谁在干活。 */
+  const busyRoomIds = new Set(activeRuns.map((trace) => trace.roomId));
+
+  const stopRun = (runId: string): void => {
+    void api
+      .stopRun(runId)
+      .then(() => scheduleRunsRefresh())
+      .catch((cause: unknown) => setError(String(cause)));
+  };
 
   if (!boot) {
     return (
@@ -233,7 +273,7 @@ export function App() {
             <h1>Wework</h1>
             <div className="meta">
               {boot.employees.length} 名员工
-              {streamingIds.length > 0 ? " · 有员工在工作中" : ""}
+              {activeRuns.length > 0 ? ` · ${activeRuns.length} 个运行进行中` : ""}
             </div>
           </div>
         </div>
@@ -251,6 +291,7 @@ export function App() {
                   <div className="row-title">{room.name}</div>
                   <div className="row-sub">{room.memberIds.length} 名成员</div>
                 </div>
+                {busyRoomIds.has(room.id) && <span className="busy-dot" title="有员工正在干活" />}
               </div>
             ))}
             {groupRooms.length === 0 && (
@@ -282,6 +323,9 @@ export function App() {
                       {room ? " · 有历史" : ""}
                     </div>
                   </div>
+                  {room !== undefined && busyRoomIds.has(room.id) && (
+                    <span className="busy-dot" title="这位员工正在干活" />
+                  )}
                 </div>
               );
             })}
@@ -351,8 +395,9 @@ export function App() {
             room={selectedRoom}
             employees={boot.employees}
             messages={messages}
-            streams={streams}
-            running={running}
+            runs={runs}
+            nowMs={nowMs}
+            onStopRun={stopRun}
             approvals={approvals.filter((item) => item.roomId === selectedRoom.id)}
             onSend={async (body, files) => {
               await api.send(selectedRoom.id, body, files);

@@ -53,8 +53,10 @@ export function registerIpc(
 
   const events = service.getEvents();
   events.on("message", (payload) => send("wework:message", payload));
+  events.on("run-queued", (payload) => send("wework:run", { kind: "queued", ...payload }));
   events.on("run-started", (payload) => send("wework:run", { kind: "started", ...payload }));
   events.on("run-text", (payload) => send("wework:run", { kind: "text", ...payload }));
+  events.on("run-step", (payload) => send("wework:run", { kind: "step", ...payload }));
   events.on("run-finished", (payload) =>
     send("wework:run", { kind: "finished", ...payload }),
   );
@@ -268,6 +270,14 @@ export function registerIpc(
   });
 
   handle("run:stopAll", () => ({ cancelled: service.stopAll() }));
+
+  /** 只看当前与最近的运行轨迹：界面用它回答「员工到底在干嘛」。 */
+  handle("runs:snapshot", () => service.snapshotRuns());
+
+  /** 停掉单独一次运行（在跑的中止进程，排队的直接出队）。 */
+  handle<{ runId: string }, { stopped: boolean }>("run:stop", ({ runId }) => ({
+    stopped: service.stopRun(runId),
+  }));
 
   handle<{ approvalId: string; approved: boolean }, boolean>(
     "approval:resolve",

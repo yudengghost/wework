@@ -2,11 +2,20 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Employee, Message, Room } from "@wework/core";
+import type { Employee, Message, Room, RunTrace } from "@wework/core";
 
 import type { ApprovalEvent } from "./api";
 import { RoomView, isNearBottom, type PendingFile } from "./RoomView";
-import { installBridge, makeEmployee, makeMessage, makeRoom } from "./tests/support";
+import {
+  installBridge,
+  makeEmployee,
+  makeMessage,
+  makeRoom,
+  makeTrace,
+} from "./tests/support";
+
+/** 测试里的「现在」：所有用例共用同一时刻，计时断言才是确定的。 */
+const NOW = Date.parse("2026-10-13T10:00:10.000Z");
 
 // jsdom 没有布局，元素尺寸恒为 0。虚拟列表读的正是 offsetHeight，
 // 所以这里给滚动容器一个视口高度、给行一个确定行高，它才会算出真实窗口。
@@ -36,6 +45,9 @@ interface RoomOptions {
   employees?: Employee[];
   messages?: Message[];
   approvals?: ApprovalEvent[];
+  runs?: RunTrace[];
+  nowMs?: number;
+  onStopRun?: (runId: string) => void;
   onSend?: (body: string, files: PendingFile[]) => Promise<void>;
   transcriptError?: string | null;
   onRepairTranscript?: () => Promise<void>;
@@ -47,8 +59,9 @@ function renderRoom(room: Room, options: RoomOptions = {}): void {
       room={room}
       employees={options.employees ?? []}
       messages={options.messages ?? []}
-      streams={{}}
-      running={{}}
+      runs={options.runs ?? []}
+      nowMs={options.nowMs ?? NOW}
+      onStopRun={options.onStopRun ?? (() => undefined)}
       approvals={options.approvals ?? []}
       onSend={options.onSend ?? (async () => undefined)}
       onResolveApproval={() => undefined}
@@ -155,8 +168,9 @@ describe("RoomView 审批与 @ 补全", () => {
         room={room}
         employees={[first, second]}
         messages={[makeMessage({ roomId: room.id })]}
-        streams={{}}
-        running={{}}
+        runs={[]}
+        nowMs={NOW}
+        onStopRun={() => undefined}
         approvals={[]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
@@ -189,8 +203,9 @@ describe("RoomView 审批与 @ 补全", () => {
         room={room}
         employees={[first, second]}
         messages={[makeMessage({ roomId: room.id })]}
-        streams={{}}
-        running={{}}
+        runs={[]}
+        nowMs={NOW}
+        onStopRun={() => undefined}
         approvals={[]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
@@ -216,8 +231,9 @@ describe("RoomView 审批与 @ 补全", () => {
         room={room}
         employees={[employee]}
         messages={[]}
-        streams={{}}
-        running={{}}
+        runs={[]}
+        nowMs={NOW}
+        onStopRun={() => undefined}
         approvals={[]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
@@ -303,8 +319,9 @@ describe("RoomView 消息列表", () => {
           room={room}
           employees={[employee]}
           messages={messages}
-          streams={{}}
-          running={{}}
+          runs={[]}
+          nowMs={NOW}
+          onStopRun={() => undefined}
           approvals={[]}
           onSend={async () => undefined}
           onResolveApproval={() => undefined}
@@ -322,7 +339,7 @@ describe("RoomView 消息列表", () => {
     }
   });
 
-  it("正在工作的员工以流式行出现在列表里", () => {
+  it("正在工作的员工出现在列表里：说清在干什么、跑了多久，并带上已写出的内容", () => {
     installBridge();
     const employee = makeEmployee({ displayName: "小码" });
     const room = makeRoom({ memberIds: [employee.id] });
@@ -333,8 +350,25 @@ describe("RoomView 消息列表", () => {
           room={room}
           employees={[employee]}
           messages={[makeMessage({ roomId: room.id, body: "开始吧" })]}
-          streams={{ [employee.id]: "正在写的字" }}
-          running={{ [employee.id]: true }}
+          runs={[
+            makeTrace({
+              roomId: room.id,
+              employeeId: employee.id,
+              trigger: "开始吧",
+              text: "正在写的字",
+              steps: [
+                { at: "2026-10-13T10:00:02.000Z", kind: "started" },
+                {
+                  at: "2026-10-13T10:00:04.000Z",
+                  kind: "tool",
+                  tool: "command_execution",
+                  detail: "npm test",
+                },
+              ],
+            }),
+          ]}
+          nowMs={NOW}
+          onStopRun={() => undefined}
           approvals={[]}
           onSend={async () => undefined}
           onResolveApproval={() => undefined}
@@ -347,6 +381,9 @@ describe("RoomView 消息列表", () => {
       const streamRow = container.querySelector(".msg-row.stream");
       expect(streamRow?.textContent).toContain("正在写的字");
       expect(streamRow?.textContent).toContain("小码");
+      // 光有「正在思考…」看不出死活：这里必须说出具体动作与已用时间
+      expect(streamRow?.textContent).toContain("执行命令：npm test");
+      expect(streamRow?.textContent).toContain("00:08");
     } finally {
       restoreViewport();
     }
@@ -366,8 +403,9 @@ describe("RoomView 消息列表", () => {
           room={room}
           employees={[employee]}
           messages={messages}
-          streams={{}}
-          running={{}}
+          runs={[]}
+          nowMs={NOW}
+          onStopRun={() => undefined}
           approvals={[]}
           onSend={async () => undefined}
           onResolveApproval={() => undefined}
@@ -390,5 +428,82 @@ describe("RoomView 消息列表", () => {
     } finally {
       restoreLayout();
     }
+  });
+});
+
+describe("RoomView 运行条与轨迹", () => {
+  it("说清当前动作，能停止这一次运行，也能展开逐步轨迹", () => {
+    installBridge();
+    const employee = makeEmployee({ displayName: "小码" });
+    const room = makeRoom({ memberIds: [employee.id] });
+    const trace = makeTrace({
+      roomId: room.id,
+      employeeId: employee.id,
+      text: "正在写",
+      steps: [
+        { at: "2026-10-13T10:00:02.000Z", kind: "started" },
+        {
+          at: "2026-10-13T10:00:05.000Z",
+          kind: "tool",
+          tool: "command_execution",
+          detail: "npm test",
+        },
+      ],
+    });
+    const onStopRun = vi.fn();
+    const { container } = render(
+      <RoomView
+        room={room}
+        employees={[employee]}
+        messages={[]}
+        runs={[trace]}
+        nowMs={NOW}
+        onStopRun={onStopRun}
+        approvals={[]}
+        onSend={async () => undefined}
+        onResolveApproval={() => undefined}
+        onAddMember={async () => undefined}
+        onRemoveMember={async () => undefined}
+        onDeleteRoom={() => undefined}
+      />,
+    );
+
+    expect(container.querySelector(".run-bar")?.textContent).toContain("执行命令：npm test");
+    expect(container.querySelector(".live-badge")?.textContent).toContain("小码 工作中");
+
+    fireEvent.click(screen.getByText("停止"));
+    expect(onStopRun).toHaveBeenCalledWith(trace.runId);
+
+    // 默认收起：轨迹不占地方，点开才展开
+    expect(container.querySelector(".run-trace")).toBeNull();
+    fireEvent.click(screen.getByText(/运行轨迹/));
+    expect(container.querySelector(".run-trace")).toBeTruthy();
+    expect(container.querySelector(".trace-steps")?.textContent).toContain("开始执行");
+    // 触发这条运行的原话留在轨迹头部，方便认出「这是哪条任务」
+    expect(container.querySelector(".trace-trigger")?.textContent).toContain("帮我干活");
+  });
+
+  it("没有运行记录时整条运行条都不出现", () => {
+    installBridge();
+    const room = makeRoom({ memberIds: [] });
+    const { container } = render(
+      <RoomView
+        room={room}
+        employees={[]}
+        messages={[]}
+        runs={[]}
+        nowMs={NOW}
+        onStopRun={() => undefined}
+        approvals={[]}
+        onSend={async () => undefined}
+        onResolveApproval={() => undefined}
+        onAddMember={async () => undefined}
+        onRemoveMember={async () => undefined}
+        onDeleteRoom={() => undefined}
+      />,
+    );
+
+    expect(container.querySelector(".run-bar")).toBeNull();
+    expect(container.querySelector(".live-badge")).toBeNull();
   });
 });

@@ -1,8 +1,20 @@
-import type { Employee, Message, Room } from "@wework/core";
+import type { Employee, Message, Room, RunTrace } from "@wework/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent } from "./api";
+import {
+  QUIET_HINT_MS,
+  clockOf,
+  currentAction,
+  describeStep,
+  elapsedMs,
+  isActive,
+  quietMs,
+  recentSteps,
+  statusLabel,
+  triggerLine,
+} from "./runActivity";
 import {
   AlertIcon,
   Avatar,
@@ -60,8 +72,11 @@ interface RoomViewProps {
   room: Room;
   employees: Employee[];
   messages: Message[];
-  streams: Record<string, string>;
-  running: Record<string, boolean>;
+  /** 全部运行轨迹（含其它房间），组件内按房间过滤。 */
+  runs: RunTrace[];
+  /** 每秒走一次的本地时钟，用来画计时与「静默多久」。 */
+  nowMs: number;
+  onStopRun: (runId: string) => void;
   approvals: ApprovalEvent[];
   onSend: (body: string, files: PendingFile[]) => Promise<void>;
   onResolveApproval: (approvalId: string, approved: boolean) => void;
@@ -78,28 +93,52 @@ interface RoomViewProps {
   onRepairTranscript?: () => Promise<void>;
 }
 
-const StreamRow = memo(function StreamRow({
-  employeeId,
+/**
+ * 运行中的员工在房间里占一行。
+ *
+ * 这一行的存在本身就是答案：「员工有没有在干活」。它从消息一发出就出现
+ * （排队中），随着运行推进换说法（正在执行 npm test），并且每秒走一次表，
+ * 所以任何一个时刻它都不是静止的。
+ */
+const ActivityRow = memo(function ActivityRow({
+  trace,
   name,
-  text,
+  nowMs,
+  workspaceDir,
 }: {
-  employeeId: string;
+  trace: RunTrace;
   name: string;
-  text: string;
+  nowMs: number;
+  workspaceDir?: string;
 }) {
+  const quiet = trace.status === "running" ? quietMs(trace, nowMs) : 0;
   return (
     <div className="msg-row stream">
-      <Avatar name={name} seed={employeeId} small />
+      <Avatar name={name} seed={trace.employeeId} small />
       <div className="msg-col">
         <div className="msg-head">
           <span className="who">{name}</span>
-          <span className="stream-dots">
-            <i />
-            <i />
-            <i />
-          </span>
+          <span className={`run-state ${trace.status}`}>{statusLabel(trace.status)}</span>
+          <span className="run-clock">{clockOf(trace, nowMs)}</span>
+          {quiet >= QUIET_HINT_MS && (
+            <span className="tag warn" title="模型还在跑，只是暂时没有新输出">
+              已静默 {Math.round(quiet / 1000)} 秒
+            </span>
+          )}
         </div>
-        <div className="bubble">{text || "正在思考…"}</div>
+        <div className="bubble">
+          <div className="run-now">
+            <span className="stream-dots">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="run-now-text">
+              {currentAction(trace, { workspaceDir })}
+            </span>
+          </div>
+          {trace.text !== "" && <div className="run-preview">{trace.text}</div>}
+        </div>
       </div>
     </div>
   );
@@ -113,6 +152,113 @@ interface MessageRowProps {
   body: string;
   attachments: Message["attachments"];
   working: boolean;
+}
+
+interface RunPanelProps {
+  /** 本房间正在跑或排队的运行，按受理顺序。 */
+  active: RunTrace[];
+  /** 本房间最近结束的运行，新的在前。 */
+  recent: RunTrace[];
+  nameOf: (employeeId: string) => string;
+  /** 员工的工作目录：轨迹里的绝对路径按它换成相对路径。 */
+  workspaceOf: (employeeId: string) => string | undefined;
+  nowMs: number;
+  open: boolean;
+  onToggle: () => void;
+  onStop: (runId: string) => void;
+}
+
+/**
+ * 输入框上方的运行条。
+ *
+ * 默认只有一行：谁、在干什么、跑了多久。点开才展开逐步轨迹。
+ * 没有它在跑时退化成一条「上次运行」的摘要，所以这个位置永远说得出话。
+ */
+function RunPanel({
+  active,
+  recent,
+  nameOf,
+  workspaceOf,
+  nowMs,
+  open,
+  onToggle,
+  onStop,
+}: RunPanelProps) {
+  const latest = active.at(-1) ?? recent[0];
+  if (latest === undefined) return null;
+
+  const listed = [...active, ...recent.slice(0, 5)];
+
+  return (
+    <>
+      {open && (
+        <div className="run-trace">
+          {listed.map((trace) => {
+            const failed = trace.status === "failed" || trace.status === "skipped";
+            return (
+              <div className="trace-item" key={trace.runId}>
+                <div className="trace-head">
+                  <span className="trace-who">{nameOf(trace.employeeId)}</span>
+                  <span className={`run-state ${trace.status}`}>{statusLabel(trace.status)}</span>
+                  <span className="trace-clock">{clockOf(trace, nowMs)}</span>
+                  <span className="trace-trigger" title={trace.trigger}>
+                    {triggerLine(trace)}
+                  </span>
+                </div>
+                {failed && (trace.error ?? trace.reason) !== undefined && (
+                  <div className="trace-why">{trace.error ?? trace.reason}</div>
+                )}
+                <ol className="trace-steps">
+                  {recentSteps(trace).map((step, index) => {
+                    const text = describeStep(step, {
+                      workspaceDir: workspaceOf(trace.employeeId),
+                    });
+                    return (
+                      <li key={`${step.at}-${index}`} className={step.kind}>
+                        <span title={text}>{text}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="run-bar">
+        {active.length === 0 ? (
+          <div className="run-row">
+            <span className={`run-dot ${latest.status}`} />
+            <span className="run-name">{nameOf(latest.employeeId)}</span>
+            <span className="run-text">
+              上次运行 · {statusLabel(latest.status)} · {clockOf(latest, nowMs)}
+            </span>
+          </div>
+        ) : (
+          active.map((trace) => (
+            <div className="run-row" key={trace.runId}>
+              <span className={`run-dot ${trace.status}`} />
+              <span className="run-name">{nameOf(trace.employeeId)}</span>
+              <span className="run-text">
+                {currentAction(trace, { workspaceDir: workspaceOf(trace.employeeId) })}
+              </span>
+              <span className="run-clock">{clockOf(trace, nowMs)}</span>
+              <button
+                className="link-btn"
+                title="停止这一次运行，不影响其它员工"
+                onClick={() => onStop(trace.runId)}
+              >
+                停止
+              </button>
+            </div>
+          ))
+        )}
+        <button className="run-toggle" aria-expanded={open} onClick={onToggle}>
+          {open ? "收起轨迹" : `运行轨迹（${listed.length}）`}
+        </button>
+      </div>
+    </>
+  );
 }
 
 /**
@@ -170,21 +316,29 @@ const MessageRow = memo(function MessageRow({
 });
 
 export function RoomView(props: RoomViewProps) {
-  const { room, employees, messages, streams, running, approvals } = props;
+  const { room, employees, messages, runs, nowMs, approvals } = props;
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [pending, setPending] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [traceOpen, setTraceOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // 本房间的运行：进行中的按受理顺序排在后面，历史记录留在面板里备查。
+  const roomRuns = runs.filter((trace) => trace.roomId === room.id);
+  const activeRuns = roomRuns
+    .filter(isActive)
+    .slice()
+    .sort((left, right) => left.queuedAt.localeCompare(right.queuedAt));
+  const recentRuns = roomRuns.filter((trace) => !isActive(trace));
 
   /**
    * 有新消息或流式增量时滚到底部，但只在用户本来就贴着底部时才滚——
    * 否则用户往回翻历史会被不断拽回去。
    */
-  const streamLength = Object.values(streams).reduce((total, text) => total + text.length, 0);
-  const streamingIds = Object.keys(streams);
-  const rowCount = messages.length + streamingIds.length;
+  const streamLength = activeRuns.reduce((total, trace) => total + trace.text.length, 0);
+  const rowCount = messages.length + activeRuns.length;
 
   // 长会话只把可见的几行放进 DOM：几千条历史全量挂载时，滚动与流式刷新都会发卡。
   const virtualizer = useVirtualizer({
@@ -219,6 +373,7 @@ export function RoomView(props: RoomViewProps) {
   // 换房间就重新贴底（组件会被复用，所以必须显式重置）。
   useEffect(() => {
     followBottomRef.current = true;
+    setTraceOpen(false);
     scrollToLatest();
   }, [room.id]);
 
@@ -239,6 +394,8 @@ export function RoomView(props: RoomViewProps) {
   );
   const nameOf = (employeeId: string): string =>
     employees.find((employee) => employee.id === employeeId)?.displayName ?? employeeId;
+  const workspaceOf = (employeeId: string): string | undefined =>
+    employees.find((employee) => employee.id === employeeId)?.workspaceDir;
 
   // 单聊只有一个人，@ 是多余的：直接不提供补全。
   const trailingMention = isDirect ? null : /@([^\s@]*)$/.exec(draft);
@@ -324,10 +481,20 @@ export function RoomView(props: RoomViewProps) {
               : `群聊 · ${members.length} 名成员`}
           </div>
         </div>
-        {streamingIds.length > 0 && (
-          <span className="live-badge">
+        {activeRuns.length > 0 && (
+          <span className="live-badge" title="有运行在进行中，详情在输入框上方的运行轨迹里">
             <span className="pulse" />
-            正在工作
+            {activeRuns.length === 1
+              ? `${nameOf(activeRuns[0]?.employeeId ?? "")} 工作中`
+              : `${activeRuns.length} 人在工作中`}
+            <span className="run-clock">
+              {clockOf(
+                activeRuns.reduce((oldest, trace) =>
+                  elapsedMs(trace, nowMs) > elapsedMs(oldest, nowMs) ? trace : oldest,
+                ),
+                nowMs,
+              )}
+            </span>
           </span>
         )}
         {!isDirect && (
@@ -441,10 +608,11 @@ export function RoomView(props: RoomViewProps) {
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const index = virtualRow.index;
             const message = messages[index];
-            const employeeId = message ? "" : (streamingIds[index - messages.length] ?? "");
+            const trace = message ? undefined : activeRuns[index - messages.length];
+            const senderId = message?.sender.kind === "employee" ? message.sender.employeeId : null;
             return (
               <div
-                key={message ? message.id : `stream:${employeeId}`}
+                key={message ? message.id : `run:${trace?.runId ?? index}`}
                 className="message-slot"
                 style={{
                   position: "absolute",
@@ -472,17 +640,18 @@ export function RoomView(props: RoomViewProps) {
                     body={message.body}
                     attachments={message.attachments}
                     working={
-                      message.sender.kind === "employee" &&
-                      running[message.sender.employeeId] === true
+                      senderId !== null &&
+                      activeRuns.some((item) => item.employeeId === senderId)
                     }
                   />
-                ) : (
-                  <StreamRow
-                    employeeId={employeeId}
-                    name={nameOf(employeeId)}
-                    text={streams[employeeId] ?? ""}
+                ) : trace ? (
+                  <ActivityRow
+                    trace={trace}
+                    name={nameOf(trace.employeeId)}
+                    nowMs={nowMs}
+                    workspaceDir={workspaceOf(trace.employeeId)}
                   />
-                )}
+                ) : null}
                 </div>
               </div>
             );
@@ -541,6 +710,17 @@ export function RoomView(props: RoomViewProps) {
           <button onClick={() => props.onResolveApproval(approval.approvalId, false)}>拒绝</button>
         </div>
       ))}
+
+      <RunPanel
+        active={activeRuns}
+        recent={recentRuns}
+        nameOf={nameOf}
+        workspaceOf={workspaceOf}
+        nowMs={nowMs}
+        open={traceOpen}
+        onToggle={() => setTraceOpen((value) => !value)}
+        onStop={props.onStopRun}
+      />
 
       <div className="composer">
         {props.readOnly && (
