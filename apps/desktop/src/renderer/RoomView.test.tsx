@@ -145,6 +145,40 @@ describe("RoomView 审批与 @ 补全", () => {
     expect(screen.getByText("技能缺失 跑得快")).toBeTruthy();
   });
 
+  it("同一句话里可以先 @ 一个人，再接着 @ 第二个人", () => {
+    installBridge();
+    const first = makeEmployee({ displayName: "小码" });
+    const second = makeEmployee({ displayName: "小测" });
+    const room = makeRoom({ memberIds: [first.id, second.id] });
+    const { container } = render(
+      <RoomView
+        room={room}
+        employees={[first, second]}
+        messages={[makeMessage({ roomId: room.id })]}
+        streams={{}}
+        running={{}}
+        approvals={[]}
+        onSend={async () => undefined}
+        onResolveApproval={() => undefined}
+        onAddMember={async () => undefined}
+        onRemoveMember={async () => undefined}
+        onDeleteRoom={() => undefined}
+      />,
+    );
+    const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+
+    fireEvent.change(box, { target: { value: "@小" } });
+    fireEvent.mouseDown(screen.getByText("@小码"));
+    expect(box.value).toBe("@小码 ");
+
+    // 第二个 @：补全要重新出现，而不是停在第一个人身上
+    fireEvent.change(box, { target: { value: `${box.value}@小` } });
+    expect(container.querySelector(".mentions")?.textContent).toContain("@小测");
+    fireEvent.mouseDown(screen.getByText("@小测"));
+
+    expect(box.value).toBe("@小码 @小测 ");
+  });
+
   it("同名成员在 @ 补全里补上 id，避免分不清是谁", () => {
     installBridge();
     const first = makeEmployee({ displayName: "小码" });

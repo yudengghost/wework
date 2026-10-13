@@ -318,6 +318,23 @@ describe("RoomService", () => {
     expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id, reviewer.id]);
   });
 
+  it("一条消息里 @ 多个员工时，两人各自跑一轮并各自回复", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder, reviewer } = await seedTeam(harness);
+    harness.setBehavior((_request, displayName) => ({ text: `${displayName} 收到` }));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 先写接口，@小测 再补测试");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls.map((call) => call.employeeId).sort()).toEqual(
+      [coder.id, reviewer.id].sort(),
+    );
+    const transcript = await harness.service.listMessages(roomId);
+    const replies = transcript.filter((message) => message.sender.kind === "employee");
+    // 两人是被同时放行的（并发闸允许时并行跑），所以落库顺序不保证。
+    expect(replies.map((message) => message.body).sort()).toEqual(["小码 收到", "小测 收到"].sort());
+  });
+
   it("@ 接续层数超限时跳过并给出原因", async () => {
     const harness = await makeHarness();
     const { roomId, coder } = await seedTeam(harness);

@@ -226,6 +226,7 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [memory, setMemory] = useState<Record<string, MemorySnapshot>>({});
   const [purgeTarget, setPurgeTarget] = useState<Employee | null>(null);
+  const [result, setResult] = useState<string | null>(null);
 
   const loadMemory = async (): Promise<void> => {
     try {
@@ -474,12 +475,15 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
             onConfirm={() => {
               const target = purgeTarget;
               setPurgeTarget(null);
+              setResult(null);
               void api
                 .purgeEmployee(target.id)
                 .then(async (result) => {
                   await onChanged();
-                  window.alert(
-                    `已彻底删除「${target.displayName}」。\n\n工作目录仍在：\n${result.workspaceDir}\n（里面可能有你的文件，所以没有自动删除）`,
+                  // 这里绝对不能用 window.alert：Electron 的原生对话框会阻塞渲染进程，
+                  // 用户看到的就是「整个界面卡死，只能重启」。结果一律写在面板里。
+                  setResult(
+                    `已彻底删除「${target.displayName}」。\n工作目录仍在：${result.workspaceDir}\n（里面可能有你的文件，所以没有自动删除）`,
                   );
                 })
                 .catch((cause: unknown) => setError(String(cause)));
@@ -571,6 +575,7 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
           </button>
           <button onClick={onClose}>关闭</button>
         </div>
+        {result && <div className="panel-result">{result}</div>}
         {error && <div className="error">{error}</div>}
       </div>
     </div>
