@@ -1,5 +1,5 @@
 import type { Employee, Message, Room } from "@buddy/core";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent } from "./api";
 import {
@@ -50,6 +50,69 @@ interface RoomViewProps {
   onAdopt?: () => void;
 }
 
+interface MessageRowProps {
+  mine: boolean;
+  who: string;
+  seed: string;
+  createdAt: string;
+  body: string;
+  attachments: Message["attachments"];
+  working: boolean;
+}
+
+/**
+ * 单条消息。
+ *
+ * 用 memo 包起来是有意的：流式输出每来一小段都会让 RoomView 重渲染一次，
+ * 而历史消息本身没变。不隔离的话，几百条历史会被反复重画。
+ */
+const MessageRow = memo(function MessageRow({
+  mine,
+  who,
+  seed,
+  createdAt,
+  body,
+  attachments,
+  working,
+}: MessageRowProps) {
+  return (
+    <div className={`msg-row${mine ? " mine" : ""}`}>
+      <Avatar name={mine ? "你" : who} seed={seed} small />
+      <div className="msg-col">
+        <div className="msg-head">
+          <span className="who">{who}</span>
+          <span>{createdAt.slice(11, 16)}</span>
+          {working && <span className="tag ok">工作中</span>}
+        </div>
+        <div className="bubble">
+          {body}
+          {attachments.length > 0 && (
+            <div className="bubble-files">
+              {attachments.map((attachment) =>
+                (attachment.mimeType ?? "").startsWith("image/") ? (
+                  <img
+                    key={attachment.id}
+                    className="bubble-image"
+                    src={toFileUrl(attachment.path)}
+                    alt={attachment.name}
+                    title={attachment.name}
+                  />
+                ) : (
+                  <span key={attachment.id} className="chip" title={attachment.path}>
+                    <FileIcon />
+                    {attachment.name}
+                    <span className="tag">{formatSize(attachment.sizeBytes)}</span>
+                  </span>
+                ),
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export function RoomView(props: RoomViewProps) {
   const { room, employees, messages, streams, running, approvals } = props;
   const [draft, setDraft] = useState("");
@@ -74,6 +137,12 @@ export function RoomView(props: RoomViewProps) {
   const isDirect = room.kind === "direct";
   const directPartner = isDirect ? members[0] : undefined;
   const nonMembers = employees.filter((employee) => !room.memberIds.includes(employee.id));
+  /** 房间里撞了名字的那些显示名：光看名字分不出谁是谁，补上 id 才选得对。 */
+  const duplicateNames = new Set(
+    members
+      .map((employee) => employee.displayName)
+      .filter((name, index, all) => all.indexOf(name) !== index),
+  );
   const nameOf = (employeeId: string): string =>
     employees.find((employee) => employee.id === employeeId)?.displayName ?? employeeId;
 
@@ -99,12 +168,15 @@ export function RoomView(props: RoomViewProps) {
     // 只带附件、不写字也应该能发出去。
     if (body === "" && pending.length === 0) return;
     const files = pending;
+    const typed = draft;
     setDraft("");
     setPending([]);
     try {
       await props.onSend(body, files);
       setError(null);
     } catch (cause) {
+      // 发送失败要把敲过的内容还回去，否则用户的话就凭空没了。
+      setDraft(typed);
       setPending(files);
       setError(String(cause));
     }
@@ -251,40 +323,16 @@ export function RoomView(props: RoomViewProps) {
           const working =
             message.sender.kind === "employee" && running[message.sender.employeeId];
           return (
-            <div key={message.id} className={`msg-row${mine ? " mine" : ""}`}>
-              <Avatar name={mine ? "你" : who} seed={seed} small />
-              <div className="msg-col">
-                <div className="msg-head">
-                  <span className="who">{who}</span>
-                  <span>{message.createdAt.slice(11, 16)}</span>
-                  {working && <span className="tag ok">工作中</span>}
-                </div>
-                <div className="bubble">
-                  {message.body}
-                  {message.attachments.length > 0 && (
-                    <div className="bubble-files">
-                      {message.attachments.map((attachment) =>
-                        (attachment.mimeType ?? "").startsWith("image/") ? (
-                          <img
-                            key={attachment.id}
-                            className="bubble-image"
-                            src={toFileUrl(attachment.path)}
-                            alt={attachment.name}
-                            title={attachment.name}
-                          />
-                        ) : (
-                          <span key={attachment.id} className="chip" title={attachment.path}>
-                            <FileIcon />
-                            {attachment.name}
-                            <span className="tag">{formatSize(attachment.sizeBytes)}</span>
-                          </span>
-                        ),
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            <MessageRow
+              key={message.id}
+              mine={mine}
+              who={who}
+              seed={seed}
+              createdAt={message.createdAt}
+              body={message.body}
+              attachments={message.attachments}
+              working={working === true}
+            />
           );
         })}
 
@@ -324,6 +372,9 @@ export function RoomView(props: RoomViewProps) {
             {approval.kind === "hire" && approval.draft?.systemPrompt && (
               <div className="why">拟任职责：{approval.draft.systemPrompt}</div>
             )}
+            {approval.kind === "hire" && approval.draft?.workspaceDir && (
+              <div className="why">拟用工作目录：{approval.draft.workspaceDir}</div>
+            )}
           </div>
           <button className="primary" onClick={() => props.onResolveApproval(approval.approvalId, true)}>
             {approval.kind === "hire" ? "批准招人" : "允许"}
@@ -360,6 +411,9 @@ export function RoomView(props: RoomViewProps) {
               >
                 <Avatar name={employee.displayName} seed={employee.id} small />
                 @{employee.displayName}
+                {duplicateNames.has(employee.displayName) && (
+                  <span className="sub"> · {employee.id}</span>
+                )}
               </div>
             ))}
             <div

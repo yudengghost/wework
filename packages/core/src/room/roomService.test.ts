@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -323,6 +323,174 @@ describe("RoomService", () => {
     expect(skipped).toEqual(["@ 接续层数超出上限"]);
   });
 
+  it("房间里有两名同名员工时，@这个名字不投递并说明原因", async () => {
+    const harness = await makeHarness();
+    const first = await harness.employees.create({
+      displayName: "小码",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "same-1"),
+      stateDir: join(workDir, "state", "same-1"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    const second = await harness.employees.create({
+      displayName: "小码",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "same-2"),
+      stateDir: join(workDir, "state", "same-2"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    const room = await harness.rooms.create({
+      name: "同名房间",
+      memberIds: [first.id, second.id],
+    });
+
+    await harness.service.submitHumanMessage(room.id, "@小码 看下这个");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls).toEqual([]);
+    const messages = await harness.service.listMessages(room.id);
+    expect(messages).toHaveLength(2);
+    expect(messages[1]?.kind).toBe("system");
+    expect(messages[1]?.body).toContain("同名");
+    expect(messages[1]?.body).toContain(first.id);
+    expect(messages[1]?.body).toContain(second.id);
+  });
+
+  it("同名但房间里只有一位时，@这个名字照常投递", async () => {
+    const harness = await makeHarness();
+    const inside = await harness.employees.create({
+      displayName: "小码",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "same-in"),
+      stateDir: join(workDir, "state", "same-in"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    await harness.employees.create({
+      displayName: "小码",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "same-out"),
+      stateDir: join(workDir, "state", "same-out"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    const room = await harness.rooms.create({ name: "单人房间", memberIds: [inside.id] });
+
+    await harness.service.submitHumanMessage(room.id, "@小码 看下这个");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls.map((call) => call.employeeId)).toEqual([inside.id]);
+  });
+
+  it("员工回复里 @ 到同名同事时不投递，并说明原因", async () => {
+    const harness = await makeHarness();
+    const coder = await harness.employees.create({
+      displayName: "小码",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "coder"),
+      stateDir: join(workDir, "state", "coder"),
+      permissions: { mode: "workspace-write" },
+      skills: [],
+    });
+    const dupA = await harness.employees.create({
+      displayName: "小测",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "same-a"),
+      stateDir: join(workDir, "state", "same-a"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    const dupB = await harness.employees.create({
+      displayName: "小测",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "same-b"),
+      stateDir: join(workDir, "state", "same-b"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    const room = await harness.rooms.create({
+      name: "同名房间",
+      memberIds: [coder.id, dupA.id, dupB.id],
+    });
+    harness.setBehavior((_request, displayName) =>
+      displayName === "小码" ? { text: "@小测 接力" } : { text: "接力完成" },
+    );
+
+    await harness.service.submitHumanMessage(room.id, "@小码 开始");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id]);
+    const warning = (await harness.service.listMessages(room.id)).find(
+      (message) => message.kind === "system",
+    );
+    expect(warning?.body).toContain("同名");
+  });
+
+  it("员工回复里 @ 同事后，接续的运行不依赖任何外部唤醒也会启动", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder, reviewer } = await seedTeam(harness);
+    harness.setBehavior((_request, displayName) =>
+      displayName === "小码" ? { text: "@小测 接力" } : { text: "接力完成" },
+    );
+
+    let onDelegateStarted: (() => void) | undefined;
+    const delegateStarted = new Promise<void>((resolve) => {
+      onDelegateStarted = resolve;
+    });
+    harness.events.on("run-started", (payload) => {
+      if (payload.employeeId === reviewer.id) onDelegateStarted?.();
+    });
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始");
+    // 这里刻意不调用 waitForIdle：它内部的 kickDrain 会掩盖调度器丢失唤醒的问题。
+    await Promise.race([
+      delegateStarted,
+      new Promise((_resolve, reject) =>
+        setTimeout(() => reject(new Error("接续的运行始终没有被启动")), 2000),
+      ),
+    ]);
+
+    await harness.service.waitForIdle();
+    expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id, reviewer.id]);
+  });
+
+  it("房间没有总量上限：跑满 50 次之后仍然接活", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    // 关掉记忆：归纳会额外调用一次适配器，让「调用次数」不再等于「运行次数」。
+    await harness.config.update({ memory: { enabled: false } });
+
+    for (let index = 0; index < 51; index += 1) {
+      await harness.service.submitHumanMessage(roomId, `@小码 第 ${index} 件事`);
+      await harness.service.waitForIdle();
+    }
+    await harness.service.submitHumanMessage(roomId, "@小码 还能干吗");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls).toHaveLength(52);
+    expect(harness.calls.at(-1)?.employeeId).toBe(coder.id);
+    expect(harness.calls.at(-1)?.prompt).toContain("还能干吗");
+  });
+
+  it("记忆文件坏掉时不让运行失败，而是跳过记忆并说明原因", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    await mkdir(join(workDir, "memory"), { recursive: true });
+    await writeFile(join(workDir, "memory", `${coder.id}.jsonl`), "{这不是合法 JSON}\n", "utf8");
+
+    await harness.service.submitHumanMessage(roomId, "@小码 干活");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id]);
+    expect(harness.calls[0]?.prompt).not.toContain("<long_term_memory>");
+    const warning = (await harness.service.listMessages(roomId)).find(
+      (message) => message.kind === "system",
+    );
+    expect(warning?.body).toContain("记忆");
+  });
+
   it("把会话 id 写回员工档案以便下次续接", async () => {
     const harness = await makeHarness();
     const { roomId, coder } = await seedTeam(harness);
@@ -331,6 +499,39 @@ describe("RoomService", () => {
     await harness.service.waitForIdle();
 
     expect(harness.employees.get(coder.id)?.sessionRef).toBe(`${coder.id}-session`);
+  });
+
+  it("审批放行的运行同样消耗本轮预算，不会绕过刹车", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder, reviewer } = await seedTeam(harness);
+    await harness.config.update({
+      scheduler: { maxRunsPerTurn: 2 },
+      policy: { employeeMentionsEmployee: "confirm" },
+    });
+    harness.setBehavior((_request, displayName) =>
+      displayName === "小码" ? { text: "@小测 接力" } : { text: "@小码 再接力" },
+    );
+    const approvals: string[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload.approvalId));
+    const skipped: string[] = [];
+    harness.events.on("run-skipped", (payload) => skipped.push(payload.reason));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始");
+    await harness.service.waitForIdle();
+    expect(approvals).toHaveLength(1);
+
+    await harness.service.resolveApproval(approvals[0] as string, true);
+    await harness.service.waitForIdle();
+    expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id, reviewer.id]);
+
+    // 小测接力回 @小码：本轮额度（2 次）已经被「人类那条 + 这次批准」用完，
+    // 再批准也不应该跑——放行不是绕过每轮预算的后门。
+    expect(approvals).toHaveLength(2);
+    await harness.service.resolveApproval(approvals[1] as string, true);
+    await harness.service.waitForIdle();
+
+    expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id, reviewer.id]);
+    expect(skipped).toContain("本轮运行次数已达上限");
   });
 
   it("stopAll 会中止正在运行的员工", async () => {

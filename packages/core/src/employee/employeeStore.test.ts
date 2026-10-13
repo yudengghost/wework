@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DataParseError } from "../storage/errors";
 import { FileStore } from "../storage/fileStore";
 import {
-  EmployeeNameConflictError,
   EmployeeNotFoundError,
   EmployeeStore,
   type NewEmployeeInput,
@@ -70,13 +69,13 @@ describe("EmployeeStore", () => {
     expect(store.list()).toHaveLength(2);
   });
 
-  it("displayName 大小写不敏感地唯一", async () => {
+  it("允许同名员工：名字可以重复，用 id 区分", async () => {
     const store = await makeLoadedStore();
-    await store.create(input({ displayName: "Reviewer" }));
+    const first = await store.create(input({ displayName: "Reviewer" }));
+    const second = await store.create(input({ displayName: "reviewer" }));
 
-    await expect(store.create(input({ displayName: "reviewer" }))).rejects.toBeInstanceOf(
-      EmployeeNameConflictError,
-    );
+    expect(first.id).not.toBe(second.id);
+    expect(store.list()).toHaveLength(2);
   });
 
   it("getByName 大小写不敏感", async () => {
@@ -87,14 +86,15 @@ describe("EmployeeStore", () => {
     expect(store.getByName("nobody")).toBeUndefined();
   });
 
-  it("update 改名字时仍做唯一性校验", async () => {
+  it("update 允许改成与别人同名的名字", async () => {
     const store = await makeLoadedStore();
     await store.create(input({ displayName: "甲" }));
     const second = await store.create(input({ displayName: "乙" }));
 
-    await expect(store.update(second.id, { displayName: "甲" })).rejects.toBeInstanceOf(
-      EmployeeNameConflictError,
-    );
+    const updated = await store.update(second.id, { displayName: "甲" });
+
+    expect(updated.displayName).toBe("甲");
+    expect(store.list().map((employee) => employee.displayName)).toEqual(["甲", "甲"]);
   });
 
   it("update 自己保持原名不报冲突", async () => {

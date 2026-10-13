@@ -228,11 +228,21 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
   const [purgeTarget, setPurgeTarget] = useState<Employee | null>(null);
 
   const loadMemory = async (): Promise<void> => {
-    const snapshots: Record<string, MemorySnapshot> = {};
-    for (const employee of [...boot.employees, ...boot.removedEmployees]) {
-      snapshots[employee.id] = await api.memoryList(employee.id);
+    try {
+      const snapshots = await Promise.all(
+        [...boot.employees, ...boot.removedEmployees].map(
+          async (employee) => [employee.id, await api.memoryList(employee.id)] as const,
+        ),
+      );
+      setMemory(Object.fromEntries(snapshots));
+    } catch (cause) {
+      setError(`读取记忆失败：${String(cause)}`);
     }
-    setMemory(snapshots);
+  };
+
+  /** 界面上的写操作统一在这里落地失败提示，避免点下去毫无反应。 */
+  const runGuarded = (action: Promise<unknown>): void => {
+    void action.catch((cause: unknown) => setError(String(cause)));
   };
 
   useEffect(() => {
@@ -287,7 +297,7 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
               <button
                 title="从名册移除，聊天记录与记忆都保留"
                 onClick={() => {
-                  void api.removeEmployee(employee.id).then(onChanged);
+                  runGuarded(api.removeEmployee(employee.id).then(onChanged));
                 }}
               >
                 移除
@@ -321,7 +331,7 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                 hint="打开后，它才拿得到招人协议；提交的申请仍需你点允许才会创建"
                 checked={employee.canHire}
                 onChange={(value) => {
-                  void api.updateEmployee(employee.id, { canHire: value }).then(onChanged);
+                  runGuarded(api.updateEmployee(employee.id, { canHire: value }).then(onChanged));
                 }}
               />
             {boot.skills.length > 0 && (
@@ -340,7 +350,9 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                           const next = event.target.checked
                             ? [...employee.skills, skill.id]
                             : employee.skills.filter((id) => id !== skill.id);
-                          void api.updateEmployee(employee.id, { skills: next }).then(onChanged);
+                          runGuarded(
+                            api.updateEmployee(employee.id, { skills: next }).then(onChanged),
+                          );
                         }}
                       />
                       <span>
@@ -383,7 +395,7 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                           className="chip-x"
                           title="忘掉这一条"
                           onClick={() => {
-                            void api.forgetFact(employee.id, fact.id).then(loadMemory);
+                            runGuarded(api.forgetFact(employee.id, fact.id).then(loadMemory));
                           }}
                         >
                           ×
@@ -402,7 +414,7 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                   <div className="skill-inline" style={{ marginTop: 8 }}>
                     <button
                       onClick={() => {
-                        void api.memoryClear(employee.id).then(loadMemory);
+                        runGuarded(api.memoryClear(employee.id).then(loadMemory));
                       }}
                     >
                       清空全部记忆
@@ -433,7 +445,9 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                       已移除
                     </span>
                   </div>
-                  <button onClick={() => void api.restoreEmployee(employee.id).then(onChanged)}>
+                  <button
+                    onClick={() => runGuarded(api.restoreEmployee(employee.id).then(onChanged))}
+                  >
                     恢复
                   </button>
                   <button className="danger" onClick={() => setPurgeTarget(employee)}>
@@ -604,6 +618,7 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
   const [config, setConfig] = useState<BuddyConfig>(boot.config);
   const [frameworks, setFrameworks] = useState(boot.frameworks);
   const [saved, setSaved] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const save = async (): Promise<void> => {
     const patch: DeepPartial<BuddyConfig> = {
@@ -615,11 +630,18 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
       skills: config.skills,
       ui: config.ui,
     };
-    const next = await api.updateSettings(patch);
-    setConfig(next);
-    setSaved("已保存");
-    setTimeout(() => setSaved(null), 2500);
-    await onChanged();
+    try {
+      const next = await api.updateSettings(patch);
+      setConfig(next);
+      setSaved("已保存");
+      setError(null);
+      setTimeout(() => setSaved(null), 2500);
+      await onChanged();
+    } catch (cause) {
+      // 常见触发：数字输入框被清空 → 0 无法通过校验。必须让用户看见，而不是静默失败。
+      setSaved(null);
+      setError(`保存失败：${String(cause)}`);
+    }
   };
 
   const probe = async (): Promise<void> => {
@@ -771,7 +793,6 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
             [
               ["maxConcurrentRuns", "同时运行上限"],
               ["maxRunsPerTurn", "每轮运行上限"],
-              ["maxTotalRunsPerRoom", "每房间总运行上限"],
               ["maxMentionDepth", "@ 接续层数上限"],
               ["dedupeWindowMs", "重复消息去重窗口(ms)"],
               ["wallClockBudgetMs", "单次运行超时(ms)"],
@@ -904,7 +925,8 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
               onClick={() => {
                 void api
                   .updateSettings({ storage: config.storage })
-                  .then(() => api.relaunch());
+                  .then(() => api.relaunch())
+                  .catch((cause: unknown) => setError(`切换数据目录失败：${String(cause)}`));
               }}
             >
               保存数据目录并重启
@@ -967,6 +989,7 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
           <button onClick={onClose}>关闭</button>
           {saved && <span className="tag ok">{saved}</span>}
         </div>
+        {error && <div className="error">{error}</div>}
       </div>
     </div>
   );

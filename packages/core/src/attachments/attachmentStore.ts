@@ -67,6 +67,9 @@ export function isImage(attachment: { mimeType?: string; name: string }): boolea
   return (attachment.mimeType ?? mimeOf(attachment.name)).startsWith("image/");
 }
 
+/** Windows 把 CON/NUL/COM1 这类名字当作设备；带扩展名（nul.txt）同样被占用。 */
+const reservedDeviceName = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
+
 /**
  * 把用户给的文件名收敛成一个安全的文件名。
  *
@@ -77,11 +80,17 @@ export function safeFileName(raw: string): string {
   const base = basename(raw.replace(/\\/g, "/")).replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
   const trimmed = base.replace(/^\.+/, "").trim();
   const fallback = trimmed === "" ? "file" : trimmed;
-  if (fallback.length <= 80) return fallback;
+  // 保留设备名加下划线前缀绕开：直接拿它当路径会复制失败。
+  const stemEnd = fallback.indexOf(".");
+  const stem = stemEnd === -1 ? fallback : fallback.slice(0, stemEnd);
+  const safe = reservedDeviceName.test(stem) ? `_${fallback}` : fallback;
+  if (safe.length <= 80) return safe;
 
-  const extension = extname(fallback);
-  const stem = fallback.slice(0, fallback.length - extension.length).slice(0, 80 - extension.length);
-  return `${stem}${extension}`;
+  const extension = extname(safe);
+  const truncated = safe
+    .slice(0, safe.length - extension.length)
+    .slice(0, 80 - extension.length);
+  return `${truncated}${extension}`;
 }
 
 /** 目标已存在时依次尝试 `名字-2.ext`、`名字-3.ext`…… */

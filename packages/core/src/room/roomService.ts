@@ -6,7 +6,7 @@ import { createId } from "../domain/ids";
 import type { Attachment, Employee, Mention, Message, Room } from "../domain/schema";
 import type { EmployeeStore } from "../employee/employeeStore";
 import { EventBus } from "../events/eventBus";
-import type { MemoryStore } from "../memory/memoryStore";
+import type { MemoryFact, MemoryStore } from "../memory/memoryStore";
 import { defaultPromptPack, render, type PromptPack } from "../prompts/promptPack";
 import type { SkillInfo } from "../skills/skillCatalog";
 import { parseMentions } from "./mentions";
@@ -78,7 +78,11 @@ interface PendingApproval {
   roomId: string;
   summary: string;
   requesterId: string;
-  task?: RunTask;
+  /**
+   * 待放行的投递。只存「入队参数」，不存已经组装好的任务：放行时必须重新走
+   * enqueue，才能和自动路径共用同一套刹车（本轮预算、@ 深度、去重）。
+   */
+  run?: { roomId: string; employeeId: string; depth: number; trigger: Message; turn: TurnBudget };
   draft?: EmployeeDraft;
 }
 
@@ -115,11 +119,12 @@ export class RoomService {
   /** 正在干活的员工；同一位员工同时只允许一个 run。 */
   private readonly busyEmployees = new Set<string>();
   private readonly activeRuns = new Map<string, AbortController>();
-  private readonly roomRunCounts = new Map<string, number>();
   private readonly recentTriggers = new Map<string, number>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   /** 每个房间已受理的招人申请数，防止一个员工无限招人。 */
   private readonly hireCounts = new Map<string, number>();
+  /** 已经提醒过记忆读不出来的员工，避免坏文件把房间刷屏。 */
+  private readonly memoryWarningSent = new Set<string>();
   private drainPromise: Promise<void> | null = null;
 
   constructor(private readonly deps: RoomServiceDeps) {
@@ -162,7 +167,11 @@ export class RoomService {
     });
 
     const policy = this.deps.config.get().policy.humanMentionsEmployee;
-    let targets = this.expandTargets(room, parsed.mentions, null);
+    const ambiguous = this.ambiguousMentions(room, parsed.mentions);
+    if (ambiguous.groups.length > 0) {
+      await this.appendSystemMessage(roomId, this.ambiguousNotice(ambiguous.groups));
+    }
+    let targets = this.expandTargets(room, parsed.mentions, null, ambiguous.ids);
     if (room.kind === "direct" && targets.length === 0) {
       // 单聊不需要 @：房间里只有一名员工，默认就是它。
       targets = room.memberIds.slice(0, 1);
@@ -193,8 +202,9 @@ export class RoomService {
       await this.approveHire(pending);
       return true;
     }
-    if (pending.task) {
-      this.queue.push(pending.task);
+    if (pending.run) {
+      // 走 enqueue：预算、@ 深度、去重都在这里生效，放行不再是一条后门。
+      this.enqueue(pending.run);
       this.kickDrain();
     }
     return true;
@@ -244,6 +254,7 @@ export class RoomService {
     room: Room,
     mentions: Mention[],
     senderEmployeeId: string | null,
+    ambiguousIds: ReadonlySet<string> = new Set<string>(),
   ): string[] {
     const targets = new Set<string>();
     for (const mention of mentions) {
@@ -253,23 +264,59 @@ export class RoomService {
         }
       } else if (
         room.memberIds.includes(mention.employeeId) &&
-        mention.employeeId !== senderEmployeeId
+        mention.employeeId !== senderEmployeeId &&
+        !ambiguousIds.has(mention.employeeId)
       ) {
-        // 员工 @ 自己会造成自接力空转，直接忽略。
+        // 员工 @ 自己会造成自接力空转；同名歧义则不知道找谁——两者都不投递。
         targets.add(mention.employeeId);
       }
     }
     return [...targets];
   }
 
+  /**
+   * 同名歧义：本房间有多位在册员工共用一个显示名时，`@名字` 无法确定对象。
+   * 员工允许同名（用 id 区分），所以这里只挑出「本房间内确实撞名」的那些。
+   */
+  private ambiguousMentions(
+    room: Room,
+    mentions: Mention[],
+  ): { ids: Set<string>; groups: { name: string; ids: string[] }[] } {
+    const membersByName = new Map<string, string[]>();
+    for (const memberId of room.memberIds) {
+      const employee = this.deps.employees.get(memberId);
+      if (!employee || employee.removedAt) continue;
+      const key = employee.displayName.trim().toLowerCase();
+      membersByName.set(key, [...(membersByName.get(key) ?? []), memberId]);
+    }
+
+    const ids = new Set<string>();
+    const groups: { name: string; ids: string[] }[] = [];
+    for (const mention of mentions) {
+      if (mention.kind !== "employee") continue;
+      const employee = this.deps.employees.get(mention.employeeId);
+      if (!employee) continue;
+      const group = membersByName.get(employee.displayName.trim().toLowerCase()) ?? [];
+      if (group.length < 2) continue;
+      for (const id of group) ids.add(id);
+      if (!groups.some((item) => item.name === employee.displayName)) {
+        groups.push({ name: employee.displayName, ids: group });
+      }
+    }
+    return { ids, groups };
+  }
+
+  /** 同名歧义的说明：说清是谁撞了名字、为什么没投递、怎么解决。 */
+  private ambiguousNotice(groups: { name: string; ids: string[] }[]): string {
+    const detail = groups
+      .map((group) => `「${group.name}」（${group.ids.join("、")}）`)
+      .join("；");
+    return `同名歧义：${detail} 在本房间有多位同名员工，这条 @ 无法确定到底找谁，所以没有投递。请给他们起不同的名字，或只把其中一位留在本房间。`;
+  }
+
   private enqueue(input: Omit<RunTask, "runId">): void {
     const { scheduler } = this.deps.config.get();
 
-    const roomRuns = this.roomRunCounts.get(input.roomId) ?? 0;
-    if (roomRuns >= scheduler.maxTotalRunsPerRoom) {
-      this.skip(input.roomId, input.employeeId, "本房间运行次数已达上限");
-      return;
-    }
     if (input.turn.remainingRuns <= 0) {
       this.skip(input.roomId, input.employeeId, "本轮运行次数已达上限");
       return;
@@ -283,6 +330,7 @@ export class RoomService {
       input.trigger.sender.kind === "human" ? "human" : input.trigger.sender.employeeId;
     const dedupeKey = `${input.employeeId}|${senderKey}|${input.trigger.body}`;
     const at = this.now().getTime();
+    this.pruneRecentTriggers(at, scheduler.dedupeWindowMs);
     const previous = this.recentTriggers.get(dedupeKey);
     if (previous !== undefined && at - previous < scheduler.dedupeWindowMs) {
       this.skip(input.roomId, input.employeeId, "重复消息已忽略");
@@ -292,6 +340,14 @@ export class RoomService {
 
     input.turn.remainingRuns -= 1;
     this.queue.push({ ...input, runId: createId("run") });
+  }
+
+  /** 去重表只服务于那一小段窗口：过期条目留着没有用，清掉免得长会话里无限增长。 */
+  private pruneRecentTriggers(now: number, windowMs: number): void {
+    const cutoff = now - windowMs;
+    for (const [key, seenAt] of this.recentTriggers) {
+      if (seenAt < cutoff) this.recentTriggers.delete(key);
+    }
   }
 
   private skip(roomId: string, employeeId: string, reason: string): void {
@@ -314,7 +370,7 @@ export class RoomService {
       roomId,
       summary: `${trigger.body.slice(0, 60)} → ${target?.displayName ?? targetId}`,
       requesterId: employeeId,
-      task: { runId: createId("run"), roomId, employeeId, depth, trigger, turn },
+      run: { roomId, employeeId, depth, trigger, turn },
     });
     this.events.emit("approval-requested", {
       approvalId,
@@ -349,6 +405,26 @@ export class RoomService {
   /** 结果类说明用系统消息落进房间，保证人类一定看得见。 */
   private async appendSystemMessage(roomId: string, body: string): Promise<void> {
     await this.appendMessage({ roomId, sender: { kind: "human" }, body, mentions: [], kind: "system" });
+  }
+
+  /** 记忆读不出来时提醒一次：说清后果（本次不带记忆）和恢复办法。 */
+  private async reportMemoryFailure(
+    roomId: string,
+    employee: Employee,
+    error: unknown,
+  ): Promise<void> {
+    if (this.memoryWarningSent.has(employee.id)) return;
+    this.memoryWarningSent.add(employee.id);
+    const reason = error instanceof Error ? error.message : String(error);
+    try {
+      await this.appendSystemMessage(
+        roomId,
+        `${employee.displayName} 的长期记忆读不出来（${reason}），这次运行不带记忆继续。` +
+          `修好或清空数据目录里的 memory/${employee.id}.jsonl 即可恢复。`,
+      );
+    } catch {
+      // 连说明都写不进去也不能影响运行本身。
+    }
   }
 
   /**
@@ -415,6 +491,10 @@ export class RoomService {
     if (this.drainPromise) return;
     this.drainPromise = this.drain().finally(() => {
       this.drainPromise = null;
+      // drain 会在队列清空后停在 await Promise.all(正在跑的 run) 上；这期间
+      // 某次运行可能在自己的回复里 @ 了同事，把新任务排进队列——那时 kickDrain
+      // 因为上面的早退而没起作用。这里必须补一次唤醒，否则那个任务会一直躺在队列里。
+      if (this.queue.length > 0) this.kickDrain();
     });
   }
 
@@ -458,8 +538,6 @@ export class RoomService {
       this.skip(task.roomId, task.employeeId, "员工已被移除");
       return;
     }
-
-    this.roomRunCounts.set(task.roomId, (this.roomRunCounts.get(task.roomId) ?? 0) + 1);
 
     const created = await this.deps.createAdapter(employee);
     if (!created.ok) {
@@ -573,7 +651,11 @@ export class RoomService {
   }
 
   private async followUpMentions(room: Room, reply: Message, parent: RunTask): Promise<void> {
-    const targets = this.expandTargets(room, reply.mentions, parent.employeeId);
+    const ambiguous = this.ambiguousMentions(room, reply.mentions);
+    if (ambiguous.groups.length > 0) {
+      await this.appendSystemMessage(room.id, this.ambiguousNotice(ambiguous.groups));
+    }
+    const targets = this.expandTargets(room, reply.mentions, parent.employeeId, ambiguous.ids);
     for (const employeeId of targets) {
       const mentionsAll = reply.mentions.some((mention) => mention.kind === "all");
       const policy = this.mentionPolicy(room, mentionsAll ? "all" : "employee");
@@ -759,7 +841,14 @@ export class RoomService {
     const settings = this.deps.config.get().memory;
     if (!memory || !settings.enabled) return "";
 
-    const all = await memory.listFacts(employee.id);
+    let all: MemoryFact[];
+    try {
+      all = await memory.listFacts(employee.id);
+    } catch (error) {
+      // 记忆是增强能力：读不出来不该让这名员工彻底无法干活。
+      await this.reportMemoryFailure(task.roomId, employee, error);
+      return "";
+    }
     const scoped = settings.crossRoomRecall
       ? all
       : all.filter((fact) => fact.roomId === task.roomId);

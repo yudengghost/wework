@@ -88,6 +88,8 @@ $env:BUDDY_LIVE_TESTS="1"; npm run test -w @buddy/core   # 真机联调（会真
 - 「停止全部」立刻中止所有排队与运行中的员工。每次运行都用 `AbortSignal` + 杀进程树，不会留下野进程。
 - 权限按员工配置，映射到各框架原生机制：Codex 用 `--sandbox read-only|workspace-write|danger-full-access`，Claude 用 `--permission-mode manual|acceptEdits|bypassPermissions`。
 - 员工默认在**自己的工作目录**里干活（`%APPDATA%\Buddy\data\workspaces\<员工名>`），不会动你的代码仓库，除非你把工作目录指过去。
+- 员工**可以同名**（内部用 id 区分，工作目录也会自动错开）。但同一个房间里如果有两位同名员工，`@这个名字` 不会被投递给任何人——房间会写明是哪些人撞了名字，改名或只留一位即可恢复。
+- 员工申请招人时，如果申请里写了工作目录，审批卡片会把那个目录一起显示出来，看清楚再点「批准招人」。
 - 应用不读取、不打包、不代持任何 CLI 凭证。
 
 ## 数据位置

@@ -5,13 +5,6 @@ import { employeeSchema, type Employee } from "../domain/schema";
 import { DataParseError } from "../storage/errors";
 import type { TextFileStore } from "../storage/fileStore";
 
-export class EmployeeNameConflictError extends Error {
-  constructor(displayName: string) {
-    super(`员工名已被占用: ${displayName}`);
-    this.name = "EmployeeNameConflictError";
-  }
-}
-
 export class EmployeeNotFoundError extends Error {
   constructor(employeeId: string) {
     super(`员工不存在: ${employeeId}`);
@@ -97,7 +90,6 @@ export class EmployeeStore {
   }
 
   async create(input: NewEmployeeInput): Promise<Employee> {
-    this.assertNameAvailable(input.displayName);
     const employee = employeeSchema.parse({
       ...input,
       id: createId("emp"),
@@ -111,10 +103,6 @@ export class EmployeeStore {
   async update(employeeId: string, patch: Partial<NewEmployeeInput>): Promise<Employee> {
     const index = this.indexOf(employeeId);
     const current = this.employees[index] as Employee;
-    if (patch.displayName !== undefined && patch.displayName !== current.displayName) {
-      this.assertNameAvailable(patch.displayName, employeeId);
-    }
-
     const updated = employeeSchema.parse({ ...current, ...patch });
     this.employees[index] = updated;
     await this.persist();
@@ -153,14 +141,6 @@ export class EmployeeStore {
     const index = this.employees.findIndex((employee) => employee.id === employeeId);
     if (index === -1) throw new EmployeeNotFoundError(employeeId);
     return index;
-  }
-
-  /** 重名只在在册员工之间判断：移除后名字可以重新使用，历史记录仍保留旧档案。 */
-  private assertNameAvailable(displayName: string, exceptEmployeeId?: string): void {
-    const existing = this.getByName(displayName);
-    if (existing && existing.id !== exceptEmployeeId) {
-      throw new EmployeeNameConflictError(displayName);
-    }
   }
 
   private async persist(): Promise<void> {

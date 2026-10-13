@@ -56,6 +56,8 @@ export interface ApprovalEvent {
     model?: string;
     systemPrompt?: string;
     permissionMode?: string;
+    /** 员工自己提出、由用户批准后才会被采用的工作目录。 */
+    workspaceDir?: string;
   };
 }
 
@@ -93,7 +95,7 @@ export const api = {
     window.buddy.invoke<Employee>("employee:create", payload),
   updateEmployee: (id: string, patch: Partial<CreateEmployeePayload>) =>
     window.buddy.invoke<Employee>("employee:update", { id, patch }),
-  removeEmployee: (id: string) => window.buddy.invoke<boolean>("employee:remove", { id }),
+  removeEmployee: (id: string) => window.buddy.invoke<Employee>("employee:remove", { id }),
   createRoom: (name: string, memberIds: string[], kind: "group" | "direct" = "group") =>
     window.buddy.invoke<Room>("room:create", { name, memberIds, kind }),
   directRoom: (employeeId: string) =>

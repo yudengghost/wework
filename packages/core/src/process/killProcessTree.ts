@@ -23,9 +23,20 @@ export function killProcessTree(
   }
 
   if (platform === "win32") {
-    execFile("taskkill.exe", ["/pid", String(pid), "/T", "/F"], { windowsHide: true }, () => {
-      // taskkill 不可用时退回直接 kill，避免调用方永久等待。
-    });
+    execFile(
+      "taskkill.exe",
+      ["/pid", String(pid), "/T", "/F"],
+      { windowsHide: true },
+      (error) => {
+        if (!error) return;
+        // taskkill 用不了时退回直接 kill，至少别让子进程继续跑。
+        try {
+          child.kill();
+        } catch {
+          // 进程早已结束，忽略。
+        }
+      },
+    );
     return;
   }
 

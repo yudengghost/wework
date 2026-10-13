@@ -13,7 +13,6 @@ describe("defaultConfig", () => {
       scheduler: {
         maxConcurrentRuns: 3,
         maxRunsPerTurn: 5,
-        maxTotalRunsPerRoom: 50,
         maxMentionDepth: 3,
         dedupeWindowMs: 5000,
         wallClockBudgetMs: 600000,

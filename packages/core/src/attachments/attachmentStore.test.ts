@@ -56,6 +56,14 @@ describe("safeFileName", () => {
     expect(safe.length).toBeLessThanOrEqual(80);
     expect(safe.endsWith(".png")).toBe(true);
   });
+
+  it("绕开 Windows 保留设备名", () => {
+    expect(safeFileName("CON")).not.toBe("CON");
+    expect(safeFileName("nul.txt")).not.toBe("nul.txt");
+    expect(safeFileName("COM1")).not.toBe("COM1");
+    // 普通名字不受影响
+    expect(safeFileName("正常文件.txt")).toBe("正常文件.txt");
+  });
 });
 
 describe("mimeOf / isImage", () => {
