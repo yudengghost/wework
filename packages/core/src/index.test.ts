@@ -11,9 +11,9 @@ import {
   defaultConfig,
 } from "./index";
 
-describe("@buddy/core", () => {
+describe("@wework/core", () => {
   it("对外暴露包名常量", () => {
-    expect(CORE_PACKAGE_NAME).toBe("@buddy/core");
+    expect(CORE_PACKAGE_NAME).toBe("@wework/core");
   });
 
   it("通过公共入口暴露全部核心构件", () => {

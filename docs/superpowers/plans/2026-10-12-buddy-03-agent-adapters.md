@@ -65,7 +65,7 @@ Claude Code（`claude -p --output-format stream-json --verbose`）：
 
 1. 全量测试通过：**22 个测试文件 / 131 个测试**。
 2. `npm run typecheck` 无错误。
-3. 真机联调（`BUDDY_LIVE_TESTS=1`）通过：
+3. 真机联调（`WEWORK_LIVE_TESTS=1`）通过：
    `ok=true exit=0 text="pong" sessionRef=01a12f68-... usage={"inputTokens":16637,"outputTokens":3}`，
    事件序列 `session,text,usage`。默认套件跳过该测试，保持确定性。
 

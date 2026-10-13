@@ -26,7 +26,7 @@ import {
   type PermissionMode,
   type SkillInfo,
   type SkillsSettings,
-} from "@buddy/core";
+} from "@wework/core";
 import { app, safeStorage } from "electron";
 
 import { createSecretStore, type SecretStore } from "./secrets";
@@ -79,6 +79,15 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * 读环境变量：新名字优先，老名字（Buddy 时代的 `BUDDY_*`）继续认，
+ * 这样用户已有的绿色版启动脚本不会因为改名失效。
+ */
+function env(primary: string, legacy: string): string | undefined {
+  const value = process.env[primary] ?? process.env[legacy];
+  return value === undefined || value.trim() === "" ? undefined : value;
+}
+
 export interface AppServices {
   /** 配置与数据的默认落点，固定不变。 */
   bootstrapDir: string;
@@ -99,12 +108,12 @@ export interface AppServices {
 }
 
 export async function createServices(): Promise<AppServices> {
-  // 配置固定放在这里；BUDDY_CONFIG_DIR 便于测试与绿色版把整份配置挪走。
-  const bootstrapDir = process.env.BUDDY_CONFIG_DIR ?? join(app.getPath("userData"), "data");
+  // 配置固定放在这里；WEWORK_CONFIG_DIR 便于测试与绿色版把整份配置挪走。
+  const bootstrapDir = env("WEWORK_CONFIG_DIR", "BUDDY_CONFIG_DIR") ?? join(app.getPath("userData"), "data");
   const store = new FileStore();
   // 显式指定过目录（绿色版 / 测试）就说明用户心里有数，不去动他的数据。
   let migratedFrom: string | undefined;
-  if (process.env.BUDDY_CONFIG_DIR === undefined) {
+  if (env("WEWORK_CONFIG_DIR", "BUDDY_CONFIG_DIR") === undefined) {
     const migrated = await migrateLegacyDataDir(bootstrapDir).catch(() => false);
     if (migrated) migratedFrom = join(app.getPath("appData"), legacyAppName, "data");
   }
@@ -130,7 +139,8 @@ export async function createServices(): Promise<AppServices> {
   }
 
   // 优先级：环境变量（便于测试与绿色版）> 设置里指定 > 默认位置。
-  const dataDir = process.env.BUDDY_DATA_DIR ?? config.get().storage.dataDir ?? bootstrapDir;
+  const dataDir =
+    env("WEWORK_DATA_DIR", "BUDDY_DATA_DIR") ?? config.get().storage.dataDir ?? bootstrapDir;
   await store.ensureDir(dataDir);
 
   const employees = new EmployeeStore(store, join(dataDir, "employees.json"));

@@ -24,14 +24,14 @@ import {
 /**
  * 真机演示「模拟 HR」：员工自己判断缺人、自己提交招人申请，用户在房间里批准后
  * 才真正创建。会真的调用本机 Codex。默认跳过：
- *   $env:BUDDY_LIVE_TESTS=1; npm run test -w @buddy/core -- live-hire
+ *   $env:WEWORK_LIVE_TESTS=1; npm run test -w @wework/core -- live-hire
  */
-const liveEnabled = process.env.BUDDY_LIVE_TESTS === "1";
+const liveEnabled = process.env.WEWORK_LIVE_TESTS === "1";
 
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-hire-"));
+  root = await mkdtemp(join(tmpdir(), "wework-hire-"));
 });
 
 afterEach(async () => {

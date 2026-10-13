@@ -1,4 +1,4 @@
-export const CORE_PACKAGE_NAME = "@buddy/core";
+export const CORE_PACKAGE_NAME = "@wework/core";
 
 export * from "./domain/ids";
 export * from "./domain/schema";

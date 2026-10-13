@@ -7,7 +7,7 @@ import { installBridge, makeBootstrap, makeConfig, makeEmployee } from "./tests/
 
 afterEach(() => {
   cleanup();
-  Reflect.deleteProperty(window, "buddy");
+  Reflect.deleteProperty(window, "wework");
 });
 
 const noop = async (): Promise<void> => undefined;

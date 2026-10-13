@@ -9,7 +9,7 @@ import { FileStore } from "./fileStore";
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-store-"));
+  root = await mkdtemp(join(tmpdir(), "wework-store-"));
 });
 
 afterEach(async () => {

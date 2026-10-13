@@ -1,13 +1,13 @@
 import { basename, join } from "node:path";
 
 import type {
-  BuddyConfig,
+  WeworkConfig,
   DeepPartial,
   Employee,
   MessageLogRepair,
   Message,
   PermissionMode,
-} from "@buddy/core";
+} from "@wework/core";
 import { app, dialog, ipcMain, type BrowserWindow } from "electron";
 
 import {
@@ -50,14 +50,14 @@ export function registerIpc(
   };
 
   const events = service.getEvents();
-  events.on("message", (payload) => send("buddy:message", payload));
-  events.on("run-started", (payload) => send("buddy:run", { kind: "started", ...payload }));
-  events.on("run-text", (payload) => send("buddy:run", { kind: "text", ...payload }));
+  events.on("message", (payload) => send("wework:message", payload));
+  events.on("run-started", (payload) => send("wework:run", { kind: "started", ...payload }));
+  events.on("run-text", (payload) => send("wework:run", { kind: "text", ...payload }));
   events.on("run-finished", (payload) =>
-    send("buddy:run", { kind: "finished", ...payload }),
+    send("wework:run", { kind: "finished", ...payload }),
   );
-  events.on("run-skipped", (payload) => send("buddy:run", { kind: "skipped", ...payload }));
-  events.on("approval-requested", (payload) => send("buddy:approval", payload));
+  events.on("run-skipped", (payload) => send("wework:run", { kind: "skipped", ...payload }));
+  events.on("approval-requested", (payload) => send("wework:approval", payload));
 
   handle("app:bootstrap", async () => ({
     dataDir,
@@ -101,7 +101,7 @@ export function registerIpc(
     return true;
   });
 
-  handle<DeepPartial<BuddyConfig>, BuddyConfig>("settings:update", (patch) => {
+  handle<DeepPartial<WeworkConfig>, WeworkConfig>("settings:update", (patch) => {
     // API Key 只走 settings:set-builtin-key（加密存储）。这里剥掉它，
     // 免得任何一条路径把明文写进 config.json。
     if (patch.builtinAgent === undefined) return config.update(patch);

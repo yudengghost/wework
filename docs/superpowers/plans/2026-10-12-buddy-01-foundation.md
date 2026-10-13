@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 建立 npm workspaces 单仓骨架，并交付 `@buddy/core` 的第一层：域模型、事件总线、文件存储、全局配置、员工/房间/消息存储，全部有单测覆盖、可无头运行。
+**Goal:** 建立 npm workspaces 单仓骨架，并交付 `@wework/core` 的第一层：域模型、事件总线、文件存储、全局配置、员工/房间/消息存储，全部有单测覆盖、可无头运行。
 
 **Architecture:** `packages/core` 是纯 Node TypeScript 包，不依赖 Electron、不依赖 UI。依赖方向单向向下：`domain`（叶子）← `storage` ← `config` ← `employee`/`room` ← `index`。所有跨层通信通过接口或事件，不允许反向 import。
 
@@ -68,9 +68,9 @@ import { describe, expect, it } from "vitest";
 
 import { CORE_PACKAGE_NAME } from "./index";
 
-describe("@buddy/core", () => {
+describe("@wework/core", () => {
   it("对外暴露包名常量", () => {
-    expect(CORE_PACKAGE_NAME).toBe("@buddy/core");
+    expect(CORE_PACKAGE_NAME).toBe("@wework/core");
   });
 });
 ```
@@ -151,7 +151,7 @@ trim_trailing_whitespace = true
 
 ```json
 {
-  "name": "@buddy/core",
+  "name": "@wework/core",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -200,7 +200,7 @@ export default defineConfig({
 `packages/core/src/index.ts`
 
 ```ts
-export const CORE_PACKAGE_NAME = "@buddy/core";
+export const CORE_PACKAGE_NAME = "@wework/core";
 ```
 
 - [ ] **Step 3: 安装依赖**
@@ -218,7 +218,7 @@ Expected: 退出码 0，根目录出现 `node_modules` 与 `package-lock.json`�
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected:
@@ -234,7 +234,7 @@ Expected:
 Run：
 
 ```powershell
-npm run typecheck -w @buddy/core
+npm run typecheck -w @wework/core
 ```
 
 Expected: 退出码 0，无输出。
@@ -243,7 +243,7 @@ Expected: 退出码 0，无输出。
 
 ```powershell
 git add package.json tsconfig.base.json .gitignore .editorconfig packages/core
-git commit -m "chore: scaffold npm workspaces and @buddy/core with vitest"
+git commit -m "chore: scaffold npm workspaces and @wework/core with vitest"
 ```
 
 ---
@@ -408,7 +408,7 @@ describe("createId", () => {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: FAIL —— 报 `Cannot find module './schema'` 与 `Cannot find module './ids'`。
@@ -564,7 +564,7 @@ export function createId(prefix: IdPrefix): string {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: PASS，`Test Files 3 passed`。
@@ -574,7 +574,7 @@ Expected: PASS，`Test Files 3 passed`。
 Run：
 
 ```powershell
-npm run typecheck -w @buddy/core
+npm run typecheck -w @wework/core
 ```
 
 Expected: 退出码 0。
@@ -667,7 +667,7 @@ describe("EventBus", () => {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: FAIL —— `Cannot find module './eventBus'`。
@@ -736,7 +736,7 @@ export class EventBus<E extends EventMap> {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: PASS，`Test Files 4 passed`。
@@ -845,7 +845,7 @@ describe("FileStore", () => {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: FAIL —— `Cannot find module './fileStore'`。
@@ -950,7 +950,7 @@ export class FileStore implements TextFileStore {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: PASS，`Test Files 5 passed`。
@@ -1045,7 +1045,7 @@ describe("buddyConfigSchema", () => {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: FAIL —— `Cannot find module './schema'`。
@@ -1110,9 +1110,9 @@ export const buddyConfigSchema = z.object({
   builtinAgent: builtinAgentSettingsSchema.default({}),
   ui: uiSettingsSchema.default({}),
 });
-export type BuddyConfig = z.infer<typeof buddyConfigSchema>;
+export type WeworkConfig = z.infer<typeof buddyConfigSchema>;
 
-export function defaultConfig(): BuddyConfig {
+export function defaultConfig(): WeworkConfig {
   return buddyConfigSchema.parse({});
 }
 ```
@@ -1122,7 +1122,7 @@ export function defaultConfig(): BuddyConfig {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: PASS，`Test Files 6 passed`。
@@ -1294,7 +1294,7 @@ describe("ConfigStore.get / update", () => {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: FAIL —— `Cannot find module './merge'` / `Cannot find module './configStore'`。
@@ -1332,7 +1332,7 @@ export function deepMerge<T>(base: T, patch: unknown): T {
 import { DataParseError } from "../storage/errors";
 import type { TextFileStore } from "../storage/fileStore";
 import { deepMerge } from "./merge";
-import { buddyConfigSchema, defaultConfig, type BuddyConfig } from "./schema";
+import { buddyConfigSchema, defaultConfig, type WeworkConfig } from "./schema";
 
 export class ConfigNotLoadedError extends Error {
   constructor(message = "配置尚未加载，请先调用 load()") {
@@ -1346,14 +1346,14 @@ export type DeepPartial<T> = {
 };
 
 export class ConfigStore {
-  private current: BuddyConfig | null = null;
+  private current: WeworkConfig | null = null;
 
   constructor(
     private readonly store: TextFileStore,
     private readonly filePath: string,
   ) {}
 
-  async load(): Promise<BuddyConfig> {
+  async load(): Promise<WeworkConfig> {
     const raw = await this.store.read(this.filePath);
     if (raw === null) {
       this.current = defaultConfig();
@@ -1376,12 +1376,12 @@ export class ConfigStore {
     return this.current;
   }
 
-  get(): BuddyConfig {
+  get(): WeworkConfig {
     if (!this.current) throw new ConfigNotLoadedError();
     return this.current;
   }
 
-  async update(patch: DeepPartial<BuddyConfig>): Promise<BuddyConfig> {
+  async update(patch: DeepPartial<WeworkConfig>): Promise<WeworkConfig> {
     if (!this.current) throw new ConfigNotLoadedError();
     const merged = buddyConfigSchema.parse(deepMerge(this.current, patch));
     this.current = merged;
@@ -1401,7 +1401,7 @@ export class ConfigStore {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: PASS，`Test Files 8 passed`。
@@ -1411,7 +1411,7 @@ Expected: PASS，`Test Files 8 passed`。
 Run：
 
 ```powershell
-npm run typecheck -w @buddy/core
+npm run typecheck -w @wework/core
 ```
 
 Expected: 退出码 0。
@@ -1587,7 +1587,7 @@ describe("EmployeeStore", () => {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: FAIL —— `Cannot find module './employeeStore'`。
@@ -1722,7 +1722,7 @@ export class EmployeeStore {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: PASS，`Test Files 9 passed`。
@@ -1840,7 +1840,7 @@ describe("RoomStore", () => {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: FAIL —— `Cannot find module './roomStore'`。
@@ -1947,7 +1947,7 @@ export class RoomStore {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: PASS，`Test Files 10 passed`。
@@ -2075,7 +2075,7 @@ describe("MessageLog", () => {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: FAIL —— `Cannot find module './messageLog'`。
@@ -2151,7 +2151,7 @@ export class MessageLog {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: PASS，`Test Files 11 passed`。
@@ -2191,9 +2191,9 @@ import {
   defaultConfig,
 } from "./index";
 
-describe("@buddy/core", () => {
+describe("@wework/core", () => {
   it("对外暴露包名常量", () => {
-    expect(CORE_PACKAGE_NAME).toBe("@buddy/core");
+    expect(CORE_PACKAGE_NAME).toBe("@wework/core");
   });
 
   it("通过公共入口暴露全部核心构件", () => {
@@ -2356,7 +2356,7 @@ describe("包边界", () => {
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected: FAIL —— `./index` 未导出 `ConfigStore` 等符号（`SyntaxError`/`does not provide an export named`）。
@@ -2366,7 +2366,7 @@ Expected: FAIL —— `./index` 未导出 `ConfigStore` 等符号（`SyntaxError
 `packages/core/src/index.ts`（整体替换）
 
 ```ts
-export const CORE_PACKAGE_NAME = "@buddy/core";
+export const CORE_PACKAGE_NAME = "@wework/core";
 
 export * from "./domain/ids";
 export * from "./domain/schema";
@@ -2386,7 +2386,7 @@ export * from "./room/messageLog";
 Run：
 
 ```powershell
-npm run test -w @buddy/core
+npm run test -w @wework/core
 ```
 
 Expected:
@@ -2401,7 +2401,7 @@ Expected:
 Run：
 
 ```powershell
-npm run typecheck -w @buddy/core
+npm run typecheck -w @wework/core
 npm run test
 ```
 

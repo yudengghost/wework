@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-export type SkillSource = "buddy" | "framework";
+export type SkillSource = "wework" | "framework";
 
 export interface SkillInfo {
   /** 目录名，作为员工档案里 skills 数组的取值。 */
@@ -83,11 +83,11 @@ export interface CatalogSkillsOptions {
 export async function catalogSkills(options: CatalogSkillsOptions): Promise<SkillInfo[]> {
   const fs = options.fs ?? createSystemSkillFileSystem();
   const roots: { dir: string; source: SkillSource }[] = [
-    { dir: join(options.dataDir, "skills"), source: "buddy" },
+    { dir: join(options.dataDir, "skills"), source: "wework" },
   ];
 
   for (const dir of options.extraRoots ?? []) {
-    if (dir.trim() !== "") roots.push({ dir: join(dir), source: "buddy" });
+    if (dir.trim() !== "") roots.push({ dir: join(dir), source: "wework" });
   }
   if (options.includeFrameworkSkills !== false) {
     for (const dir of frameworkSkillRoots(options.env ?? {})) {

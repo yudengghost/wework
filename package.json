@@ -1,5 +1,5 @@
 {
-  "name": "buddy",
+  "name": "wework",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -14,8 +14,8 @@
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "app": "npm run start -w @buddy/desktop",
-    "package": "npm run package -w @buddy/desktop"
+    "app": "npm run start -w @wework/desktop",
+    "package": "npm run package -w @wework/desktop"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0"

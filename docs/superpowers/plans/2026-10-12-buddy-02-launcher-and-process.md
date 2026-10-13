@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 交付 `@buddy/core` 的第二层：跨来源探测 Codex / Claude Code 可执行文件，以及一个安全、可流式、可超时、可取消的子进程执行器。
+**Goal:** 交付 `@wework/core` 的第二层：跨来源探测 Codex / Claude Code 可执行文件，以及一个安全、可流式、可超时、可取消的子进程执行器。
 
 **Architecture:** 探测逻辑与环境访问解耦：`LaunchEnvironment` 是注入的接口（`which` / `listDirs` / `fileExists` / `resolveWslCommand`），真实实现走 `node:child_process` + `node:fs`，测试用桩。`ProcessRunner` 只负责拉起进程与逐行流式事件，不懂任何框架语义。
 

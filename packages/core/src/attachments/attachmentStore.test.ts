@@ -19,7 +19,7 @@ let workspace: string;
 let store: AttachmentStore;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-attach-"));
+  root = await mkdtemp(join(tmpdir(), "wework-attach-"));
   incoming = join(root, "incoming");
   workspace = join(root, "workspace");
   store = new AttachmentStore({ dataDir: root });

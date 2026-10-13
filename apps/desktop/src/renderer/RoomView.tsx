@@ -1,4 +1,4 @@
-import type { Employee, Message, Room } from "@buddy/core";
+import type { Employee, Message, Room } from "@wework/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
 

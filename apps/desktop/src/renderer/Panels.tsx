@@ -1,10 +1,10 @@
 import type {
-  BuddyConfig,
+  WeworkConfig,
   DeepPartial,
   Employee,
   Framework,
   PermissionMode,
-} from "@buddy/core";
+} from "@wework/core";
 import { useEffect, useState } from "react";
 
 import { api, type Bootstrap, type CreateEmployeePayload, type MemorySnapshot } from "./api";
@@ -359,7 +359,7 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                       />
                       <span>
                         <strong>{skill.id}</strong>
-                        {skill.source === "buddy" && (
+                        {skill.source === "wework" && (
                           <span className="tag ok" style={{ marginLeft: 6 }}>
                             本地
                           </span>
@@ -608,7 +608,7 @@ function SkillPicker({
           />
           <span>
             <strong>{skill.id}</strong>
-            {skill.source === "buddy" && (
+            {skill.source === "wework" && (
               <span className="tag ok" style={{ marginLeft: 6 }}>
                 本地
               </span>
@@ -622,7 +622,7 @@ function SkillPicker({
 }
 
 export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
-  const [config, setConfig] = useState<BuddyConfig>(boot.config);
+  const [config, setConfig] = useState<WeworkConfig>(boot.config);
   const [frameworks, setFrameworks] = useState(boot.frameworks);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -634,7 +634,7 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
   };
 
   const save = async (): Promise<void> => {
-    const patch: DeepPartial<BuddyConfig> = {
+    const patch: DeepPartial<WeworkConfig> = {
       launchers: config.launchers,
       scheduler: config.scheduler,
       policy: config.policy,
@@ -685,7 +685,7 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
     setFrameworks(await api.probeLaunchers());
   };
 
-  const setScheduler = (key: keyof BuddyConfig["scheduler"], value: number): void => {
+  const setScheduler = (key: keyof WeworkConfig["scheduler"], value: number): void => {
     setConfig({ ...config, scheduler: { ...config.scheduler, [key]: value } });
   };
 

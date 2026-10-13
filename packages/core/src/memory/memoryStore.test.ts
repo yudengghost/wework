@@ -12,7 +12,7 @@ let root: string;
 let memory: MemoryStore;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-memory-"));
+  root = await mkdtemp(join(tmpdir(), "wework-memory-"));
   memory = new MemoryStore(new FileStore(), root);
 });
 

@@ -56,7 +56,7 @@ type Behavior = (request: AgentRunRequest, employeeId: string) => {
 let workDir: string;
 
 beforeEach(async () => {
-  workDir = await mkdtemp(join(tmpdir(), "buddy-room-service-"));
+  workDir = await mkdtemp(join(tmpdir(), "wework-room-service-"));
 });
 
 afterEach(async () => {
@@ -176,7 +176,7 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     rosterFile: {
       write: async (_dir, entries) => {
         rosterWrites.push(entries);
-        return ".buddy/roster.json";
+        return ".wework/roster.json";
       },
     },
     skillsFor: async (employee: Employee) =>
@@ -1164,7 +1164,7 @@ describe("RoomService", () => {
     const prompt = harness.calls[0]?.prompt ?? "";
     // 提示词里点名了它，并给出了去哪读完整人设
     expect(prompt).toContain("数据同事");
-    expect(prompt).toContain(".buddy/roster.json");
+    expect(prompt).toContain(".wework/roster.json");
     // 但完整人设没进提示词——这正是渐进式披露的意义
     expect(prompt).not.toContain("这是完整人设的尾部标记");
     // 完整内容在写出去的名册文件里

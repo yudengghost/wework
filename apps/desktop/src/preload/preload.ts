@@ -10,11 +10,11 @@ function listen(channel: string) {
   };
 }
 
-contextBridge.exposeInMainWorld("buddy", {
+contextBridge.exposeInMainWorld("wework", {
   invoke: (channel: string, payload?: unknown) => ipcRenderer.invoke(channel, payload),
-  onMessage: listen("buddy:message"),
-  onRun: listen("buddy:run"),
-  onApproval: listen("buddy:approval"),
+  onMessage: listen("wework:message"),
+  onRun: listen("wework:run"),
+  onApproval: listen("wework:approval"),
   /** 拖拽进来的文件在渲染层拿不到真实路径，只能让 preload 通过 webUtils 拿。 */
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
 });

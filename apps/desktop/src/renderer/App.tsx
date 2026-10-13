@@ -1,4 +1,4 @@
-import type { Employee, Message } from "@buddy/core";
+import type { Employee, Message } from "@wework/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent, type Bootstrap } from "./api";
@@ -125,14 +125,14 @@ export function App() {
   };
 
   useEffect(() => {
-    const offMessage = window.buddy.onMessage((message) => {
+    const offMessage = window.wework.onMessage((message) => {
       if (message.roomId !== roomRef.current) return;
       setMessages((prev) =>
         prev.some((item) => item.id === message.id) ? prev : [...prev, message],
       );
     });
 
-    const offRun = window.buddy.onRun((event) => {
+    const offRun = window.wework.onRun((event) => {
       if (event.kind === "started") {
         setRunning((prev) => ({ ...prev, [event.employeeId]: true }));
         return;
@@ -164,7 +164,7 @@ export function App() {
       }
     });
 
-    const offApproval = window.buddy.onApproval((event) => {
+    const offApproval = window.wework.onApproval((event) => {
       setApprovals((prev) => [...prev, event]);
     });
 
@@ -238,7 +238,7 @@ export function App() {
           </div>
         </div>
         <div className="list">
-          <Section title="群聊" count={groupRooms.length} storageKey="buddy.section.groups">
+          <Section title="群聊" count={groupRooms.length} storageKey="wework.section.groups">
             {groupRooms.map((room) => (
               <div
                 key={room.id}
@@ -263,7 +263,7 @@ export function App() {
           <Section
             title="单聊"
             count={boot.employees.length}
-            storageKey="buddy.section.direct"
+            storageKey="wework.section.direct"
           >
             {boot.employees.map((employee) => {
               const room = directRoomOf(employee.id);
@@ -295,7 +295,7 @@ export function App() {
             <Section
               title="已离开"
               count={orphanRooms.length}
-              storageKey="buddy.section.archived"
+              storageKey="wework.section.archived"
             >
               {orphanRooms.map(({ room, label }) => (
                 <div

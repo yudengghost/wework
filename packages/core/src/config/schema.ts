@@ -73,7 +73,7 @@ export const skillsSettingsSchema = z.object({
 });
 export type SkillsSettings = z.infer<typeof skillsSettingsSchema>;
 
-export const buddyConfigSchema = z.object({
+export const weworkConfigSchema = z.object({
   version: z.literal(1).default(1),
   launchers: z
     .object({
@@ -89,8 +89,8 @@ export const buddyConfigSchema = z.object({
   memory: memorySettingsSchema.default({}),
   skills: skillsSettingsSchema.default({}),
 });
-export type BuddyConfig = z.infer<typeof buddyConfigSchema>;
+export type WeworkConfig = z.infer<typeof weworkConfigSchema>;
 
-export function defaultConfig(): BuddyConfig {
-  return buddyConfigSchema.parse({});
+export function defaultConfig(): WeworkConfig {
+  return weworkConfigSchema.parse({});
 }

@@ -6,7 +6,7 @@
  * 2. 据此把底座的横向长度对齐成与 W 的横向跨度完全一致，并把 viewBox 校正成正方形；
  * 3. 逐尺寸导出 PNG，再按 ico 规范拼出 wework.ico。
  *
- * 运行：npm run icon -w @buddy/desktop
+ * 运行：npm run icon -w @wework/desktop
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -126,10 +126,12 @@ async function main() {
   const source = await readFile(svgPath, "utf8");
   const head = source.slice(0, source.indexOf("<svg"));
   const openTag = pick(/<svg[\s\S]*?>/, source);
-  const polyline = pick(/<polyline[\s\S]*?\/>/, source);
-  const rect = pick(/<rect[\s\S]*?\/>/, source);
-  const strokeWidth = Number(attrOf(openTag, "stroke-width"));
-  const half = strokeWidth / 2;
+  const defs = pick(/<defs>[\s\S]*?<\/defs>/, source);
+  const polyline = pick(/<polyline id="w-outer"[\s\S]*?\/>/, source);
+  const cut = pick(/<polyline id="w-slot-cut"[\s\S]*?\/>/, source);
+  const rect = pick(/<rect id="w-base"[\s\S]*?\/>/, source);
+  const strokeWidth = Number(attrOf(polyline, "stroke-width"));
+  const baseStrokeWidth = Number(attrOf(rect, "stroke-width"));
 
   const win = new BrowserWindow({ show: false, width: measurePx, height: measurePx });
   await win.loadURL(
@@ -144,7 +146,7 @@ async function main() {
     `${openTag
       .replace(/viewBox="[^"]*"/, `viewBox="${box}"`)
       .replace(/width="[^"]*"/, `width="${px}"`)
-      .replace(/height="[^"]*"/, `height="${px}"`)}${shapes}</svg>`;
+      .replace(/height="[^"]*"/, `height="${px}"`)}${defs}${shapes}</svg>`;
   const scale = measurePx / 64;
   const inkBox = async (shapes) => {
     const box = await win.webContents.executeJavaScript(measureScript(doc(shapes)));
@@ -156,13 +158,14 @@ async function main() {
     };
   };
 
-  // 1. 底座长度对齐 W 的横向跨度：描边居中，所以路径两端各内缩半个描边宽。
+  // 1. 底座长度对齐 W 的横向跨度：描边居中，所以路径两端各内缩半个底座描边宽
+  //    （底座的描边与 W 的笔画粗细不同，这里必须用各自的宽度算）。
   const wBox = await inkBox(polyline);
   const rBox = await inkBox(rect);
   const alignedRect = withAttr(
-    withAttr(rect, "x", round(wBox.left + half)),
+    withAttr(rect, "x", round(wBox.left + baseStrokeWidth / 2)),
     "width",
-    round(wBox.right - wBox.left - strokeWidth),
+    round(wBox.right - wBox.left - baseStrokeWidth),
   );
 
   // 2. 整体（含描边与尖角）的外接框 → 正外接正方形，这就是「总比例正方形」。
@@ -186,9 +189,9 @@ async function main() {
     )}, ${round(rBox.right)}]）→ 与 W 等宽`,
   );
   console.log(
-    `W 与底座间隙 ${round(rBox.top - wBox.bottom)}；底座中空高度 ${
-      Number(attrOf(alignedRect, "height")) - strokeWidth
-    }`,
+    `W 与底座间隙 ${round(rBox.top - wBox.bottom)}；底座中空高度 ${round(
+      Number(attrOf(alignedRect, "height")) - Number(attrOf(alignedRect, "stroke-width")),
+    )}；W 挖槽后两侧留墨 ${round((strokeWidth - Number(attrOf(cut, "stroke-width"))) / 2)}`,
   );
   console.log(
     `整体墨迹 ${round(fBox.right - fBox.left)} × ${round(fBox.bottom - fBox.top)}` +

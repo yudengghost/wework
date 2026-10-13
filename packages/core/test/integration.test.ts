@@ -16,7 +16,7 @@ import {
 let dataDir: string;
 
 beforeEach(async () => {
-  dataDir = await mkdtemp(join(tmpdir(), "buddy-integration-"));
+  dataDir = await mkdtemp(join(tmpdir(), "wework-integration-"));
 });
 
 afterEach(async () => {

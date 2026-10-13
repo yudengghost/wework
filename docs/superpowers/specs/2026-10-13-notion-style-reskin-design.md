@@ -113,7 +113,7 @@ Notion Style 文档风视觉系统。
 1. `npm run typecheck` 全仓通过。
 2. `npm test`：core 230 passed / 7 skipped，desktop 30 passed。
 3. `npm run build` 产出 `dist/renderer/styles.css`。
-4. 用应用自带的 `BUDDY_SMOKE=1` 截图模式（真实主进程 + 真实 IPC，数据目录指向
+4. 用应用自带的 `WEWORK_SMOKE=1` 截图模式（真实主进程 + 真实 IPC，数据目录指向
    `.scratch/notion-data` 演示数据）核对首页、群聊、员工管理、设置四个界面。
 5. 在真实渲染进程里实测拖拽手柄：`totalHandles: 6, visibleHandles: 1`，
    唯一可见的手柄所在祖先链包含 `:hover` 的 `.msg-row`；`viewport` 与

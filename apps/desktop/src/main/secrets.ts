@@ -1,4 +1,4 @@
-import type { BuddyConfig, TextFileStore } from "@buddy/core";
+import type { WeworkConfig, TextFileStore } from "@wework/core";
 
 // 加密能力由主进程注入（Electron 的 safeStorage：Windows 上就是 DPAPI）。
 // 这里刻意不 import electron，纯逻辑单元测试才跑得起来。
@@ -78,7 +78,7 @@ export function createSecretStore(
 }
 
 /** 发给渲染层的配置：API Key 永不外发，界面只需要知道「设没设」。 */
-export function withoutApiKey(config: BuddyConfig): BuddyConfig {
+export function withoutApiKey(config: WeworkConfig): WeworkConfig {
   return {
     ...config,
     builtinAgent: { ...config.builtinAgent, apiKey: null },

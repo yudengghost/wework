@@ -22,15 +22,15 @@ import {
 
 /**
  * 可选的真机联调测试：会真的调用本机已安装的 Codex CLI（消耗少量额度）。
- * 默认跳过，用 BUDDY_LIVE_TESTS=1 显式开启：
- *   $env:BUDDY_LIVE_TESTS=1; npm run test -w @buddy/core -- live-agent
+ * 默认跳过，用 WEWORK_LIVE_TESTS=1 显式开启：
+ *   $env:WEWORK_LIVE_TESTS=1; npm run test -w @wework/core -- live-agent
  */
-const liveEnabled = process.env.BUDDY_LIVE_TESTS === "1";
+const liveEnabled = process.env.WEWORK_LIVE_TESTS === "1";
 
 let workDir: string;
 
 beforeEach(async () => {
-  workDir = await mkdtemp(join(tmpdir(), "buddy-live-"));
+  workDir = await mkdtemp(join(tmpdir(), "wework-live-"));
 });
 
 afterEach(async () => {

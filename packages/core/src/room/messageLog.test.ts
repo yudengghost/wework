@@ -13,7 +13,7 @@ let root: string;
 let log: MessageLog;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-messages-"));
+  root = await mkdtemp(join(tmpdir(), "wework-messages-"));
   log = new MessageLog(new FileStore(), root);
 });
 

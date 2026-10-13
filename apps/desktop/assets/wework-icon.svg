@@ -1,23 +1,31 @@
 <!--
-  Wework 标识：一个「W」加一条底座组成的皇冠轮廓。
+  Wework 标识：一个「W」加一条底座组成的皇冠。
 
-  - 只用描边，不用填充，所以整个图形天然是「外粗线、内中空」；
-  - W 的三个尖是三处皇冠的峰，两个谷是峰之间的凹陷；
-  - 底座宽度与 W 的横向跨度一致，两者之间留一点间隙。
+  - W 与底座都是「外粗线、内中空」：W 的每条笔画沿中线再挖一条细槽（mask），
+    底座则是一个描边矩形，中间自然留空；
+  - W 的三个顶端齐平（都在同一条水平线上），中间那个顶是平口；
+    两个谷底也切成平口；
+  - 底座宽度由 scripts/build-icon.mjs 实测对齐成与 W 的横向跨度一致。
 
-  viewBox 由 scripts/build-icon.mjs 按实测外接框校正成正方形，改坐标后重跑该脚本即可。
+  viewBox 同样由该脚本按实测外接框校正成正方形；改坐标后重跑 `npm run icon` 即可。
 -->
 <svg
   xmlns="http://www.w3.org/2000/svg"
-  viewBox="5.625 7.25 52.75 52.75"
+  viewBox="4 8.438 56 56"
   width="64"
   height="64"
   fill="none"
   stroke="currentColor"
-  stroke-width="5"
   stroke-linecap="butt"
-  stroke-linejoin="miter"
+  stroke-linejoin="bevel"
 >
-  <polyline points="8 13 21 36 32 13 43 36 56 13" />
-  <rect x="8.25" y="47.5" width="47.5" height="10" />
+  <defs>
+    <!-- 白 = 保留，黑 = 挖空：先铺满整条笔画，再沿中线切掉一条细槽。 -->
+    <mask id="wework-w-slot" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <polyline id="w-slot-keep" points="4 14 9 14 18 42 24 42 29 14 35 14 40 42 46 42 55 14 60 14" stroke="#ffffff" stroke-width="8.5" />
+      <polyline id="w-slot-cut" points="7.4 14 9 14 18 42 24 42 29 14 35 14 40 42 46 42 55 14 56.6 14" stroke="#000000" stroke-width="2.6" />
+    </mask>
+  </defs>
+  <polyline id="w-outer" points="4 14 9 14 18 42 24 42 29 14 35 14 40 42 46 42 55 14 60 14" stroke-width="8.5" mask="url(#wework-w-slot)" />
+  <rect id="w-base" x="6.1" y="53" width="51.8" height="8" stroke-width="4.2" />
 </svg>

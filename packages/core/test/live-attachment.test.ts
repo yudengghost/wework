@@ -22,14 +22,14 @@ import {
 /**
  * 真机验证附件：把一份真实文件附在消息上，看员工能不能读到它的内容。
  * 会真的调用本机 Codex。默认跳过：
- *   $env:BUDDY_LIVE_TESTS=1; npm run test -w @buddy/core -- live-attachment
+ *   $env:WEWORK_LIVE_TESTS=1; npm run test -w @wework/core -- live-attachment
  */
-const liveEnabled = process.env.BUDDY_LIVE_TESTS === "1";
+const liveEnabled = process.env.WEWORK_LIVE_TESTS === "1";
 
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-attach-live-"));
+  root = await mkdtemp(join(tmpdir(), "wework-attach-live-"));
 });
 
 afterEach(async () => {

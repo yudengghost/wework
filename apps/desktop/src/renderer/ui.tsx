@@ -78,16 +78,27 @@ export const WeworkMark = ({ size = 18 }: IconProps) => (
   <svg
     {...base(size)}
     viewBox={weworkBrand.viewBox}
-    strokeWidth={weworkBrand.strokeWidth}
     strokeLinecap="butt"
-    strokeLinejoin="miter"
+    strokeLinejoin="bevel"
   >
-    <polyline points={weworkBrand.points} />
+    <defs>
+      {/* 白 = 保留，黑 = 挖空：先铺满整条笔画，再沿中线切掉一条细槽，W 因此也是空心的。 */}
+      <mask id="wework-w-slot" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+        <polyline points={weworkBrand.points} stroke="#ffffff" strokeWidth={weworkBrand.strokeWidth} />
+        <polyline points={weworkBrand.slotPoints} stroke="#000000" strokeWidth={weworkBrand.slotWidth} />
+      </mask>
+    </defs>
+    <polyline
+      points={weworkBrand.points}
+      strokeWidth={weworkBrand.strokeWidth}
+      mask="url(#wework-w-slot)"
+    />
     <rect
       x={weworkBrand.base.x}
       y={weworkBrand.base.y}
       width={weworkBrand.base.width}
       height={weworkBrand.base.height}
+      strokeWidth={weworkBrand.base.strokeWidth}
     />
   </svg>
 );

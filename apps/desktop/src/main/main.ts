@@ -10,10 +10,10 @@ let window: BrowserWindow | null = null;
 
 /**
  * Windows 上 Electron 是 GUI 子系统程序，主进程的 console 输出没有控制台可去，
- * 因此诊断信息统一写到 BUDDY_SMOKE_FILE 指向的文件里。
+ * 因此诊断信息统一写到 WEWORK_SMOKE_FILE 指向的文件里。
  */
 function trace(line: string): void {
-  const file = process.env.BUDDY_SMOKE_FILE;
+  const file = process.env.WEWORK_SMOKE_FILE;
   if (!file) return;
   try {
     appendFileSync(file, `${line}\n`);
@@ -70,28 +70,28 @@ const smokeScript = `(async () => {
       out[name] = "ERR:" + String(error && error.message ? error.message : error);
     }
   };
-  await step("dataDir", async () => (await window.buddy.invoke("app:bootstrap")).dataDir);
+  await step("dataDir", async () => (await window.wework.invoke("app:bootstrap")).dataDir);
   await step("frameworks", async () => {
-    const boot = await window.buddy.invoke("app:bootstrap");
+    const boot = await window.wework.invoke("app:bootstrap");
     return Object.entries(boot.frameworks).map(([k, v]) => k + "=" + v.status).join(",");
   });
-  await step("skillCount", async () => (await window.buddy.invoke("app:bootstrap")).skills.length);
+  await step("skillCount", async () => (await window.wework.invoke("app:bootstrap")).skills.length);
 
-  const employee = await window.buddy.invoke("employee:create", {
+  const employee = await window.wework.invoke("employee:create", {
     displayName: "联调员工",
     framework: "codex",
     permissionMode: "read-only",
   });
   out.employee = employee.id;
 
-  const direct = await window.buddy.invoke("room:direct", { employeeId: employee.id });
+  const direct = await window.wework.invoke("room:direct", { employeeId: employee.id });
   out.directKind = direct.kind;
   out.directMembers = direct.memberIds.length;
 
-  const again = await window.buddy.invoke("room:direct", { employeeId: employee.id });
+  const again = await window.wework.invoke("room:direct", { employeeId: employee.id });
   out.directReused = again.id === direct.id;
 
-  const group = await window.buddy.invoke("room:create", {
+  const group = await window.wework.invoke("room:create", {
     name: "测试群",
     memberIds: [employee.id],
     kind: "group",
@@ -99,63 +99,63 @@ const smokeScript = `(async () => {
   out.groupKind = group.kind;
   out.groupMembersAfterCreate = group.memberIds.length;
 
-  const second = await window.buddy.invoke("employee:create", {
+  const second = await window.wework.invoke("employee:create", {
     displayName: "联调员工B",
     framework: "codex",
     permissionMode: "read-only",
   });
-  const added = await window.buddy.invoke("room:member", {
+  const added = await window.wework.invoke("room:member", {
     roomId: group.id,
     employeeId: second.id,
     member: true,
   });
   out.afterAddMember = added.memberIds.length;
-  const removed = await window.buddy.invoke("room:member", {
+  const removed = await window.wework.invoke("room:member", {
     roomId: group.id,
     employeeId: second.id,
     member: false,
   });
   out.afterRemoveMember = removed.memberIds.length;
 
-  const memory = await window.buddy.invoke("memory:list", { employeeId: employee.id });
+  const memory = await window.wework.invoke("memory:list", { employeeId: employee.id });
   out.memoryCount = memory.count;
 
   // 移除 / 恢复 / 彻底删除 的生命周期
   await step("softRemoved", async () => {
-    const removed = await window.buddy.invoke("employee:remove", { id: employee.id });
+    const removed = await window.wework.invoke("employee:remove", { id: employee.id });
     return Boolean(removed.removedAt);
   });
   await step("activeAfterRemove", async () =>
-    String((await window.buddy.invoke("app:bootstrap")).employees.length),
+    String((await window.wework.invoke("app:bootstrap")).employees.length),
   );
   await step("removedListed", async () =>
-    String((await window.buddy.invoke("app:bootstrap")).removedEmployees.length),
+    String((await window.wework.invoke("app:bootstrap")).removedEmployees.length),
   );
   await step("directRoomKept", async () =>
     String(
-      (await window.buddy.invoke("app:bootstrap")).rooms.some((room) => room.id === direct.id),
+      (await window.wework.invoke("app:bootstrap")).rooms.some((room) => room.id === direct.id),
     ),
   );
   await step("restored", async () => {
-    const restored = await window.buddy.invoke("employee:restore", { id: employee.id });
+    const restored = await window.wework.invoke("employee:restore", { id: employee.id });
     return String(restored.removedAt === undefined);
   });
   await step("memoryShape", async () =>
-    Object.keys(await window.buddy.invoke("memory:list", { employeeId: employee.id }))
+    Object.keys(await window.wework.invoke("memory:list", { employeeId: employee.id }))
       .sort()
       .join("/"),
   );
   await step("purgeWorkspacePath", async () =>
-    String(Boolean((await window.buddy.invoke("employee:purge", { id: employee.id })).workspaceDir)),
+    String(Boolean((await window.wework.invoke("employee:purge", { id: employee.id })).workspaceDir)),
   );
   await step("finalEmployees", async () =>
-    String((await window.buddy.invoke("app:bootstrap")).employees.length),
+    String((await window.wework.invoke("app:bootstrap")).employees.length),
   );
   await step("finalRemoved", async () =>
-    String((await window.buddy.invoke("app:bootstrap")).removedEmployees.length),
+    String((await window.wework.invoke("app:bootstrap")).removedEmployees.length),
   );
   await step("finalRooms", async () =>
-    String((await window.buddy.invoke("app:bootstrap")).rooms.length),
+    String((await window.wework.invoke("app:bootstrap")).rooms.length),
   );
   return JSON.stringify(out);
 })()`;
@@ -185,8 +185,8 @@ void app
     registerIpc(services, () => window);
     await createWindow();
 
-    if (process.env.BUDDY_SMOKE === "1") {
-      const shotPath = process.env.BUDDY_SMOKE_SHOT;
+    if (process.env.WEWORK_SMOKE === "1") {
+      const shotPath = process.env.WEWORK_SMOKE_SHOT;
       if (shotPath) {
         // 只截图、不跑剧本：用来肉眼检查真实渲染结果。
         setTimeout(() => {
@@ -216,8 +216,8 @@ void app
                 })()`,
               );
               trace(`layout: ${String(metrics)}`);
-              const clickSelector = process.env.BUDDY_SMOKE_SHOT_CLICK;
-              const shotJs = process.env.BUDDY_SMOKE_SHOT_JS;
+              const clickSelector = process.env.WEWORK_SMOKE_SHOT_CLICK;
+              const shotJs = process.env.WEWORK_SMOKE_SHOT_JS;
               if (shotJs) {
                 // 允许在截图前执行任意脚本，例如展开所有折叠区再截图。
                 await window?.webContents.executeJavaScript(shotJs);

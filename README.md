@@ -29,7 +29,7 @@ npm run app          # 构建并启动
 npm test                        # 全部单测（默认跳过真机联调）
 npm run typecheck               # 全仓类型检查
 npm run build                   # 构建桌面应用产物
-$env:BUDDY_LIVE_TESTS="1"; npm run test -w @buddy/core   # 真机联调（会真的调用 codex，消耗少量额度）
+$env:WEWORK_LIVE_TESTS="1"; npm run test -w @wework/core   # 真机联调（会真的调用 codex，消耗少量额度）
 ```
 
 ## 上手三步
@@ -111,7 +111,8 @@ $env:BUDDY_LIVE_TESTS="1"; npm run test -w @buddy/core   # 真机联调（会真
 从旧名字 Buddy 升上来的版本，首次启动会把 `%APPDATA%\Buddy\data` 整份拷到新目录（老目录保留，确认无误后可自行删除），员工、房间与记忆都不会丢。
 
 想把数据放到别处：设置 → 数据位置，填好点「保存数据目录并重启」。
-也可以用环境变量一次性指定（便于做绿色版）：`set BUDDY_DATA_DIR=E:\BuddyData`。
+也可以用环境变量一次性指定（便于做绿色版）：`set WEWORK_DATA_DIR=E:\WeworkData`
+（数据目录的旧名字 `BUDDY_DATA_DIR` 仍然认，方便已有的启动脚本继续用）。
 
 ## 结构
 

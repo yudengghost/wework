@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buddyConfigSchema, defaultConfig } from "./schema";
+import { weworkConfigSchema, defaultConfig } from "./schema";
 
 describe("defaultConfig", () => {
   it("给出完整的默认配置", () => {
@@ -48,9 +48,9 @@ describe("defaultConfig", () => {
   });
 });
 
-describe("buddyConfigSchema", () => {
+describe("weworkConfigSchema", () => {
   it("部分输入被补全为完整配置", () => {
-    const config = buddyConfigSchema.parse({
+    const config = weworkConfigSchema.parse({
       policy: { employeeMentionsAll: "auto" },
     });
 
@@ -61,12 +61,12 @@ describe("buddyConfigSchema", () => {
 
   it("拒绝非法的策略枚举值", () => {
     expect(() =>
-      buddyConfigSchema.parse({ policy: { employeeMentionsEmployee: "maybe" } }),
+      weworkConfigSchema.parse({ policy: { employeeMentionsEmployee: "maybe" } }),
     ).toThrow();
   });
 
   it("丢弃未知字段", () => {
-    const config: unknown = buddyConfigSchema.parse({ unknownField: 1 });
+    const config: unknown = weworkConfigSchema.parse({ unknownField: 1 });
 
     expect((config as Record<string, unknown>).unknownField).toBeUndefined();
   });

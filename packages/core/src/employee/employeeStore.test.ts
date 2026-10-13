@@ -16,7 +16,7 @@ let root: string;
 let filePath: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-employee-"));
+  root = await mkdtemp(join(tmpdir(), "wework-employee-"));
   filePath = join(root, "employees.json");
 });
 

@@ -13,7 +13,7 @@ let root: string;
 let filePath: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-config-"));
+  root = await mkdtemp(join(tmpdir(), "wework-config-"));
   filePath = join(root, "config.json");
 });
 

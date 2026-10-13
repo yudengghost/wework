@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { FileStore, defaultConfig } from "@buddy/core";
+import { FileStore, defaultConfig } from "@wework/core";
 
 import { createSecretStore, withoutApiKey, type SecretCodec } from "./secrets";
 

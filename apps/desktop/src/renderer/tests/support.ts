@@ -1,5 +1,5 @@
-import type { BuddyConfig, Employee, Message, Room } from "@buddy/core";
-import { defaultConfig } from "@buddy/core";
+import type { WeworkConfig, Employee, Message, Room } from "@wework/core";
+import { defaultConfig } from "@wework/core";
 
 import type { Bootstrap } from "../api";
 
@@ -43,7 +43,7 @@ export interface FakeBridge {
 }
 
 /**
- * 装上一个假的 window.buddy。
+ * 装上一个假的 window.wework。
  *
  * 渲染层的测试不该真的起 Electron：这里只要求「通道收发的形状」与 preload 一致，
  * 领域逻辑由 packages/core 的测试负责。
@@ -52,7 +52,7 @@ export function installBridge(): FakeBridge {
   const calls: BridgeCall[] = [];
   const handlers = new Map<string, (payload: unknown) => unknown>();
 
-  window.buddy = {
+  window.wework = {
     invoke: <TResult>(channel: string, payload?: unknown): Promise<TResult> => {
       calls.push({ channel, payload });
       const handler = handlers.get(channel);
@@ -118,7 +118,7 @@ export function makeMessage(patch: Partial<Message> = {}): Message {
   };
 }
 
-export function makeConfig(): BuddyConfig {
+export function makeConfig(): WeworkConfig {
   return defaultConfig();
 }
 

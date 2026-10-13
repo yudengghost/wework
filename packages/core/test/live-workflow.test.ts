@@ -20,14 +20,14 @@ import {
 /**
  * 真机端到端：从建员工开始，走完整流程完成一个**真实工作任务**（写一份带表格的文档）。
  * 会真的调用本机 Codex，消耗额度。默认跳过：
- *   $env:BUDDY_LIVE_TESTS=1; npm run test -w @buddy/core -- live-workflow
+ *   $env:WEWORK_LIVE_TESTS=1; npm run test -w @wework/core -- live-workflow
  */
-const liveEnabled = process.env.BUDDY_LIVE_TESTS === "1";
+const liveEnabled = process.env.WEWORK_LIVE_TESTS === "1";
 
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-workflow-"));
+  root = await mkdtemp(join(tmpdir(), "wework-workflow-"));
 });
 
 afterEach(async () => {

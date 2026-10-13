@@ -27,14 +27,14 @@ import {
  * 关键点：不给 A 任何「用 @ 交接」的额外指示——它只能从提示词里的 <team> 块得知
  * @ 意味着什么。因此这条测试同时验证了机制与那段提示词是否真的有效。
  *
- * 默认跳过：$env:BUDDY_LIVE_TESTS=1; npm run test -w @buddy/core -- live-handoff
+ * 默认跳过：$env:WEWORK_LIVE_TESTS=1; npm run test -w @wework/core -- live-handoff
  */
-const liveEnabled = process.env.BUDDY_LIVE_TESTS === "1";
+const liveEnabled = process.env.WEWORK_LIVE_TESTS === "1";
 
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-handoff-"));
+  root = await mkdtemp(join(tmpdir(), "wework-handoff-"));
 });
 
 afterEach(async () => {
@@ -125,7 +125,7 @@ describe.skipIf(!liveEnabled)("真机接力：员工把活交给另一位员工"
     // 注意：只说「交给复核员」，不说怎么交——交接方式必须由 A 自己从 <team> 块推断。
     await service.submitHumanMessage(
       room.id,
-      "@撰写员 写一句 30 字以内的产品简介，主题是「Buddy：本地多 Agent 协作桌面应用」。写完后交给复核员确认没有错别字。",
+      "@撰写员 写一句 30 字以内的产品简介，主题是「Wework：本地多 Agent 协作桌面应用」。写完后交给复核员确认没有错别字。",
     );
     await service.waitForIdle();
 

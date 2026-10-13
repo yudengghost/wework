@@ -34,7 +34,7 @@ describe("catalogSkills", () => {
         id: "imagegen",
         name: "图像生成",
         description: "生成位图素材",
-        source: "buddy",
+        source: "wework",
         entryPath: "D:\\data\\skills\\imagegen\\SKILL.md",
       },
     ]);
@@ -88,7 +88,7 @@ describe("catalogSkills", () => {
     });
 
     expect(skills).toHaveLength(1);
-    expect(skills[0]).toMatchObject({ name: "我的", source: "buddy" });
+    expect(skills[0]).toMatchObject({ name: "我的", source: "wework" });
   });
 
   it("没有 SKILL.md 的子目录不算技能", async () => {
@@ -115,7 +115,7 @@ describe("catalogSkills", () => {
       }),
     });
 
-    expect(skills[0]).toMatchObject({ id: "writer", source: "buddy" });
+    expect(skills[0]).toMatchObject({ id: "writer", source: "wework" });
   });
 
   it("结果按 id 排序", async () => {

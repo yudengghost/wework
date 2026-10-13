@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Employee, Message, Room } from "@buddy/core";
+import type { Employee, Message, Room } from "@wework/core";
 
 import type { ApprovalEvent } from "./api";
 import { RoomView, isNearBottom, type PendingFile } from "./RoomView";
@@ -29,7 +29,7 @@ function stubLayout(height: number): () => void {
 
 afterEach(() => {
   cleanup();
-  Reflect.deleteProperty(window, "buddy");
+  Reflect.deleteProperty(window, "wework");
 });
 
 interface RoomOptions {

@@ -9,7 +9,7 @@ import { createRosterFileWriter, type RosterEntry } from "./rosterFile";
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "buddy-roster-"));
+  root = await mkdtemp(join(tmpdir(), "wework-roster-"));
 });
 
 afterEach(async () => {
@@ -43,8 +43,8 @@ describe("createRosterFileWriter", () => {
 
     const relativePath = await writer.write(root, entries);
 
-    expect(relativePath).toBe(".buddy/roster.json");
-    const parsed = JSON.parse(await readFile(join(root, ".buddy", "roster.json"), "utf8"));
+    expect(relativePath).toBe(".wework/roster.json");
+    const parsed = JSON.parse(await readFile(join(root, ".wework", "roster.json"), "utf8"));
     expect(parsed.employees).toHaveLength(2);
     expect(parsed.employees[1]).toMatchObject({
       displayName: "外部同事",
@@ -53,7 +53,7 @@ describe("createRosterFileWriter", () => {
     });
     expect(parsed.note).toContain("自动生成");
     // 自我忽略：不污染员工工作目录所在的 git 仓库
-    expect(await readFile(join(root, ".buddy", ".gitignore"), "utf8")).toBe("*\n");
+    expect(await readFile(join(root, ".wework", ".gitignore"), "utf8")).toBe("*\n");
   });
 
   it("重复写入是覆盖刷新，不会堆积", async () => {
@@ -62,7 +62,7 @@ describe("createRosterFileWriter", () => {
 
     await writer.write(root, entries.slice(0, 1));
 
-    const parsed = JSON.parse(await readFile(join(root, ".buddy", "roster.json"), "utf8"));
+    const parsed = JSON.parse(await readFile(join(root, ".wework", "roster.json"), "utf8"));
     expect(parsed.employees).toHaveLength(1);
   });
 });

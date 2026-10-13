@@ -15,7 +15,7 @@ let workDir: string;
 let capturePath: string;
 
 beforeEach(async () => {
-  workDir = await mkdtemp(join(tmpdir(), "buddy-adapter-"));
+  workDir = await mkdtemp(join(tmpdir(), "wework-adapter-"));
   capturePath = join(workDir, "capture.json");
 });
 

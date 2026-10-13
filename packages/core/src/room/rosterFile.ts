@@ -27,7 +27,7 @@ export interface RosterWriter {
 export function createRosterFileWriter(fileName = "roster.json"): RosterWriter {
   return {
     async write(workspaceDir: string, entries: RosterEntry[]): Promise<string> {
-      const path = join(workspaceDir, ".buddy", fileName);
+      const path = join(workspaceDir, ".wework", fileName);
       await mkdir(dirname(path), { recursive: true });
       // 让这个应用管理的目录自我忽略：员工工作目录若是 git 仓库，也不该被它污染。
       await writeFile(join(dirname(path), ".gitignore"), "*\n", "utf8");

@@ -7,7 +7,7 @@ import { installBridge, makeBootstrap, makeEmployee } from "./tests/support";
 
 afterEach(() => {
   cleanup();
-  Reflect.deleteProperty(window, "buddy");
+  Reflect.deleteProperty(window, "wework");
 });
 
 describe("应用外壳", () => {

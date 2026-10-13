@@ -5,7 +5,7 @@ import { api } from "./api";
 import { installBridge, makeEmployee, makeMessage } from "./tests/support";
 
 afterEach(() => {
-  Reflect.deleteProperty(window, "buddy");
+  Reflect.deleteProperty(window, "wework");
 });
 
 // 渲染层与主进程之间唯一的契约就是「通道名 + 载荷形状」。

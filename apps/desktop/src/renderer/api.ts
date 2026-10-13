@@ -1,5 +1,5 @@
 import type {
-  BuddyConfig,
+  WeworkConfig,
   DeepPartial,
   Employee,
   MessageLogRepair,
@@ -7,7 +7,7 @@ import type {
   PermissionMode,
   Room,
   SkillInfo,
-} from "@buddy/core";
+} from "@wework/core";
 
 export interface FrameworkStatus {
   status: "found" | "not-found";
@@ -17,7 +17,7 @@ export interface FrameworkStatus {
 export interface Bootstrap {
   dataDir: string;
   bootstrapDir: string;
-  config: BuddyConfig;
+  config: WeworkConfig;
   /** 内置兜底员工的 API Key 是否已经设置；密钥本身不会发给渲染层。 */
   builtinApiKeySet: boolean;
   employees: Employee[];
@@ -78,7 +78,7 @@ export interface CreateEmployeePayload {
   canHire?: boolean;
 }
 
-interface BuddyBridge {
+interface WeworkBridge {
   invoke<TResult>(channel: string, payload?: unknown): Promise<TResult>;
   onMessage(handler: (message: Message) => void): () => void;
   onRun(handler: (event: RunEvent) => void): () => void;
@@ -88,51 +88,51 @@ interface BuddyBridge {
 
 declare global {
   interface Window {
-    buddy: BuddyBridge;
+    wework: WeworkBridge;
   }
 }
 
 export const api = {
-  bootstrap: () => window.buddy.invoke<Bootstrap>("app:bootstrap"),
-  updateSettings: (patch: DeepPartial<BuddyConfig>) =>
-    window.buddy.invoke<BuddyConfig>("settings:update", patch),
+  bootstrap: () => window.wework.invoke<Bootstrap>("app:bootstrap"),
+  updateSettings: (patch: DeepPartial<WeworkConfig>) =>
+    window.wework.invoke<WeworkConfig>("settings:update", patch),
   setBuiltinApiKey: (apiKey: string | null) =>
-    window.buddy.invoke<{ ok: true }>("settings:set-builtin-key", { apiKey }),
+    window.wework.invoke<{ ok: true }>("settings:set-builtin-key", { apiKey }),
   probeLaunchers: () =>
-    window.buddy.invoke<Record<string, FrameworkStatus>>("launcher:probe"),
+    window.wework.invoke<Record<string, FrameworkStatus>>("launcher:probe"),
   createEmployee: (payload: CreateEmployeePayload) =>
-    window.buddy.invoke<Employee>("employee:create", payload),
+    window.wework.invoke<Employee>("employee:create", payload),
   updateEmployee: (id: string, patch: Partial<CreateEmployeePayload>) =>
-    window.buddy.invoke<Employee>("employee:update", { id, patch }),
-  removeEmployee: (id: string) => window.buddy.invoke<Employee>("employee:remove", { id }),
+    window.wework.invoke<Employee>("employee:update", { id, patch }),
+  removeEmployee: (id: string) => window.wework.invoke<Employee>("employee:remove", { id }),
   createRoom: (name: string, memberIds: string[], kind: "group" | "direct" = "group") =>
-    window.buddy.invoke<Room>("room:create", { name, memberIds, kind }),
+    window.wework.invoke<Room>("room:create", { name, memberIds, kind }),
   directRoom: (employeeId: string) =>
-    window.buddy.invoke<Room>("room:direct", { employeeId }),
+    window.wework.invoke<Room>("room:direct", { employeeId }),
   updateRoom: (id: string, patch: { name?: string; memberIds?: string[] }) =>
-    window.buddy.invoke<Room>("room:update", { id, patch }),
-  removeRoom: (id: string) => window.buddy.invoke<boolean>("room:remove", { id }),
+    window.wework.invoke<Room>("room:update", { id, patch }),
+  removeRoom: (id: string) => window.wework.invoke<boolean>("room:remove", { id }),
   setRoomMember: (roomId: string, employeeId: string, member: boolean) =>
-    window.buddy.invoke<Room>("room:member", { roomId, employeeId, member }),
-  messages: (roomId: string) => window.buddy.invoke<Message[]>("room:messages", { roomId }),
+    window.wework.invoke<Room>("room:member", { roomId, employeeId, member }),
+  messages: (roomId: string) => window.wework.invoke<Message[]>("room:messages", { roomId }),
   repairRoom: (roomId: string) =>
-    window.buddy.invoke<MessageLogRepair>("room:repair", { roomId }),
+    window.wework.invoke<MessageLogRepair>("room:repair", { roomId }),
   send: (roomId: string, body: string, files: { name: string; sourcePath: string }[] = []) =>
-    window.buddy.invoke<Message>("room:send", { roomId, body, files }),
-  pickFiles: () => window.buddy.invoke<{ name: string; sourcePath: string }[]>("files:pick"),
-  pathForFile: (file: File) => window.buddy.pathForFile(file),
-  stopAll: () => window.buddy.invoke<{ cancelled: number }>("run:stopAll"),
+    window.wework.invoke<Message>("room:send", { roomId, body, files }),
+  pickFiles: () => window.wework.invoke<{ name: string; sourcePath: string }[]>("files:pick"),
+  pathForFile: (file: File) => window.wework.pathForFile(file),
+  stopAll: () => window.wework.invoke<{ cancelled: number }>("run:stopAll"),
   resolveApproval: (approvalId: string, approved: boolean) =>
-    window.buddy.invoke<boolean>("approval:resolve", { approvalId, approved }),
-  skillsCatalog: () => window.buddy.invoke<SkillInfo[]>("skills:catalog"),
+    window.wework.invoke<boolean>("approval:resolve", { approvalId, approved }),
+  skillsCatalog: () => window.wework.invoke<SkillInfo[]>("skills:catalog"),
   memoryList: (employeeId: string) =>
-    window.buddy.invoke<MemorySnapshot>("memory:list", { employeeId }),
+    window.wework.invoke<MemorySnapshot>("memory:list", { employeeId }),
   memoryClear: (employeeId: string) =>
-    window.buddy.invoke<boolean>("memory:clear", { employeeId }),
+    window.wework.invoke<boolean>("memory:clear", { employeeId }),
   forgetFact: (employeeId: string, factId: string) =>
-    window.buddy.invoke<boolean>("memory:forget", { employeeId, factId }),
-  restoreEmployee: (id: string) => window.buddy.invoke<Employee>("employee:restore", { id }),
+    window.wework.invoke<boolean>("memory:forget", { employeeId, factId }),
+  restoreEmployee: (id: string) => window.wework.invoke<Employee>("employee:restore", { id }),
   purgeEmployee: (id: string) =>
-    window.buddy.invoke<{ workspaceDir: string }>("employee:purge", { id }),
-  relaunch: () => window.buddy.invoke<boolean>("app:relaunch"),
+    window.wework.invoke<{ workspaceDir: string }>("employee:purge", { id }),
+  relaunch: () => window.wework.invoke<boolean>("app:relaunch"),
 };
