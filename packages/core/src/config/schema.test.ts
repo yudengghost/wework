@@ -13,7 +13,6 @@ describe("defaultConfig", () => {
       scheduler: {
         wallClockBudgetMs: null,
         maxCascadeRuns: 12,
-        maxMentionDepth: 3,
         dedupeWindowMs: 5000,
         contextWindowMessages: 50,
       },
@@ -40,9 +39,9 @@ describe("defaultConfig", () => {
 
   it("每次调用返回互不共享的对象", () => {
     const first = defaultConfig();
-    first.scheduler.maxMentionDepth = 99;
+    first.scheduler.dedupeWindowMs = 99;
 
-    expect(defaultConfig().scheduler.maxMentionDepth).toBe(3);
+    expect(defaultConfig().scheduler.dedupeWindowMs).toBe(5000);
   });
 });
 
@@ -54,7 +53,7 @@ describe("weworkConfigSchema", () => {
 
     expect(config.policy.employeeMentionsAll).toBe("auto");
     expect(config.policy.employeeMentionsEmployee).toBe("auto");
-    expect(config.scheduler.maxMentionDepth).toBe(3);
+    expect(config.scheduler.dedupeWindowMs).toBe(5000);
   });
 
   it("拒绝非法的策略枚举值", () => {

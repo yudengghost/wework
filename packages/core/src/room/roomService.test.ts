@@ -358,23 +358,6 @@ describe("RoomService", () => {
     expect(replies.map((message) => message.body).sort()).toEqual(["小码 收到", "小测 收到"].sort());
   });
 
-  it("@ 接续层数超限时跳过并给出原因", async () => {
-    const harness = await makeHarness();
-    const { roomId, coder } = await seedTeam(harness);
-    await harness.config.update({ scheduler: { maxMentionDepth: 0 } });
-    harness.setBehavior((_request, displayName) =>
-      displayName === "小码" ? { text: "@小测 接力" } : { text: "接力完成" },
-    );
-    const skipped: string[] = [];
-    harness.events.on("run-skipped", (payload) => skipped.push(payload.reason));
-
-    await harness.service.submitHumanMessage(roomId, "@小码 开始");
-    await harness.service.waitForIdle();
-
-    expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id]);
-    expect(skipped).toEqual(["@ 接续层数超出上限"]);
-  });
-
   it("房间里有两名同名员工时，@这个名字不投递并说明原因", async () => {
     const harness = await makeHarness();
     const first = await harness.employees.create({
@@ -1638,6 +1621,37 @@ describe("运行次数上限与超时", () => {
       [coder.id, reviewer.id, third.id].sort(),
     );
     expect(skipped).toEqual([]);
+  });
+
+  it("接续层数不再有上限：来回对推一直进行到接续总量用完为止", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder, reviewer } = await seedTeam(harness);
+    await harness.config.update({ scheduler: { maxCascadeRuns: 5 } });
+    // 每次回复都换一句，免得被「重复消息去重」拦住（那是另一条刹车）
+    let round = 0;
+    harness.setBehavior((_request, displayName) => {
+      round += 1;
+      return displayName === "小码"
+        ? { text: `@小测 你再看下（${round}）` }
+        : { text: `@小码 你也看下（${round}）` };
+    });
+    const skipped: string[] = [];
+    harness.events.on("run-skipped", (payload) => skipped.push(payload.reason));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始");
+    await harness.service.waitForIdle();
+
+    // 人类那 1 次 + 接续 5 次；以前有「接续层数上限=3」，第 4 手就会被拦下
+    expect(harness.calls).toHaveLength(6);
+    expect(harness.calls.map((call) => call.employeeId)).toEqual([
+      coder.id,
+      reviewer.id,
+      coder.id,
+      reviewer.id,
+      coder.id,
+      reviewer.id,
+    ]);
+    expect(skipped).toEqual(["本轮员工接续触发的运行次数已达上限"]);
   });
 
   it("默认不给单次运行设超时：跑得久不等于出错", async () => {

@@ -27,7 +27,6 @@ export const schedulerSettingsSchema = z.object({
    * 这场接力里所有员工接续触发的运行、以及这些接力经过审批放行的运行，都从同一个数里扣。
    */
   maxCascadeRuns: z.number().int().positive().nullable().default(12),
-  maxMentionDepth: z.number().int().nonnegative().default(3),
   dedupeWindowMs: z.number().int().nonnegative().default(5000),
   /** 上下文条数上限：冷启动时作为起步窗口，之后作为增量的封顶。 */
   contextWindowMessages: z.number().int().positive().default(50),

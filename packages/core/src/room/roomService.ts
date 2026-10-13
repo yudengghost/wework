@@ -100,7 +100,6 @@ interface RunTask {
   runId: string;
   roomId: string;
   employeeId: string;
-  depth: number;
   trigger: Message;
   turn: TurnBudget;
   /**
@@ -137,7 +136,6 @@ interface PendingApproval {
   run?: {
     roomId: string;
     employeeId: string;
-    depth: number;
     trigger: Message;
     turn: TurnBudget;
     origin: "human" | "cascade";
@@ -241,10 +239,10 @@ export class RoomService {
 
     for (const employeeId of targets) {
       if (policy === "confirm") {
-        this.requestApproval(roomId, employeeId, employeeId, message, turn, 0, "human");
+        this.requestApproval(roomId, employeeId, employeeId, message, turn, "human");
         continue;
       }
-      this.enqueue({ roomId, employeeId, depth: 0, trigger: message, turn, origin: "human" });
+      this.enqueue({ roomId, employeeId, trigger: message, turn, origin: "human" });
     }
 
     this.kickDrain();
@@ -456,11 +454,6 @@ export class RoomService {
       reject("本轮员工接续触发的运行次数已达上限");
       return;
     }
-    if (input.depth > scheduler.maxMentionDepth) {
-      reject("@ 接续层数超出上限");
-      return;
-    }
-
     const senderKey =
       input.trigger.sender.kind === "human" ? "human" : input.trigger.sender.employeeId;
     const dedupeKey = `${input.employeeId}|${senderKey}|${input.trigger.body}`;
@@ -536,7 +529,6 @@ export class RoomService {
     targetId: string,
     trigger: Message,
     turn: TurnBudget,
-    depth: number,
     origin: "human" | "cascade",
   ): void {
     const approvalId = createId("appr");
@@ -547,7 +539,7 @@ export class RoomService {
       roomId,
       summary: `${trigger.body.slice(0, 60)} → ${target?.displayName ?? targetId}`,
       requesterId: employeeId,
-      run: { roomId, employeeId, depth, trigger, turn, origin },
+      run: { roomId, employeeId, trigger, turn, origin },
     });
     this.events.emit("approval-requested", {
       approvalId,
@@ -925,21 +917,12 @@ export class RoomService {
       const mentionsAll = reply.mentions.some((mention) => mention.kind === "all");
       const policy = this.mentionPolicy(room, mentionsAll ? "all" : "employee");
       if (policy === "confirm") {
-        this.requestApproval(
-          room.id,
-          employeeId,
-          employeeId,
-          reply,
-          parent.turn,
-          parent.depth + 1,
-          "cascade",
-        );
+        this.requestApproval(room.id, employeeId, employeeId, reply, parent.turn, "cascade");
         continue;
       }
       this.enqueue({
         roomId: room.id,
         employeeId,
-        depth: parent.depth + 1,
         trigger: reply,
         turn: parent.turn,
         origin: "cascade",

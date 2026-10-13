@@ -43,7 +43,7 @@ describe("ConfigStore.load", () => {
     const config = await store.load();
 
     expect(config.policy.employeeMentionsAll).toBe("auto");
-    expect(config.scheduler.maxMentionDepth).toBe(3);
+    expect(config.scheduler.dedupeWindowMs).toBe(5000);
   });
 
   it("非法 JSON 抛出 DataParseError 而不是静默重置", async () => {
@@ -53,28 +53,34 @@ describe("ConfigStore.load", () => {
   });
 
   it("字段校验失败抛出 DataParseError", async () => {
-    await writeFile(filePath, JSON.stringify({ scheduler: { maxMentionDepth: -1 } }), "utf8");
+    await writeFile(filePath, JSON.stringify({ scheduler: { dedupeWindowMs: -1 } }), "utf8");
 
     await expect(makeStore().load()).rejects.toBeInstanceOf(DataParseError);
   });
 
   it("老配置里已经删掉的字段不会让应用起不来", async () => {
     // 这两项都曾经存在：maxEmployeeCreationsPerRoom 是后来的招人上限（已按需求去掉），
-    // maxTotalRunsPerRoom 更早。用户文件里留着这些键时必须照常加载——
+    // maxTotalRunsPerRoom 更早，maxMentionDepth 是 @ 接续层数（也已按需求去掉）。
+    // 用户文件里留着这些键时必须照常加载——
     // 删掉一个配置项不能让别人的应用直接打不开。
     await writeFile(
       filePath,
       JSON.stringify({
-        scheduler: { maxEmployeeCreationsPerRoom: 3, maxTotalRunsPerRoom: 50 },
+        scheduler: {
+          maxEmployeeCreationsPerRoom: 3,
+          maxTotalRunsPerRoom: 50,
+          maxMentionDepth: 3,
+        },
       }),
       "utf8",
     );
 
     const config = await makeStore().load();
 
-    expect(config.scheduler.maxMentionDepth).toBe(3);
+    expect(config.scheduler.dedupeWindowMs).toBe(5000);
     expect("maxEmployeeCreationsPerRoom" in config.scheduler).toBe(false);
     expect("maxConcurrentRuns" in config.scheduler).toBe(false);
+    expect("maxMentionDepth" in config.scheduler).toBe(false);
   });
 
   it("老配置里抄下来的旧默认超时会当成「没设过」：默认不限制才真的生效", async () => {

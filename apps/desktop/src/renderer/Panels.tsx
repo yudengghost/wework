@@ -932,7 +932,6 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
         <div className="grid2">
           {(
             [
-              ["maxMentionDepth", "@ 接续层数上限"],
               ["dedupeWindowMs", "重复消息去重窗口(ms)"],
               ["contextWindowMessages", "房间上下文条数"],
             ] as const
