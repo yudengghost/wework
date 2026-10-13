@@ -2,6 +2,7 @@ import type {
   BuddyConfig,
   DeepPartial,
   Employee,
+  MessageLogRepair,
   Message,
   PermissionMode,
   Room,
@@ -17,6 +18,8 @@ export interface Bootstrap {
   dataDir: string;
   bootstrapDir: string;
   config: BuddyConfig;
+  /** 内置兜底员工的 API Key 是否已经设置；密钥本身不会发给渲染层。 */
+  builtinApiKeySet: boolean;
   employees: Employee[];
   removedEmployees: Employee[];
   rooms: Room[];
@@ -89,6 +92,8 @@ export const api = {
   bootstrap: () => window.buddy.invoke<Bootstrap>("app:bootstrap"),
   updateSettings: (patch: DeepPartial<BuddyConfig>) =>
     window.buddy.invoke<BuddyConfig>("settings:update", patch),
+  setBuiltinApiKey: (apiKey: string | null) =>
+    window.buddy.invoke<{ ok: true }>("settings:set-builtin-key", { apiKey }),
   probeLaunchers: () =>
     window.buddy.invoke<Record<string, FrameworkStatus>>("launcher:probe"),
   createEmployee: (payload: CreateEmployeePayload) =>
@@ -106,6 +111,8 @@ export const api = {
   setRoomMember: (roomId: string, employeeId: string, member: boolean) =>
     window.buddy.invoke<Room>("room:member", { roomId, employeeId, member }),
   messages: (roomId: string) => window.buddy.invoke<Message[]>("room:messages", { roomId }),
+  repairRoom: (roomId: string) =>
+    window.buddy.invoke<MessageLogRepair>("room:repair", { roomId }),
   send: (roomId: string, body: string, files: { name: string; sourcePath: string }[] = []) =>
     window.buddy.invoke<Message>("room:send", { roomId, body, files }),
   pickFiles: () => window.buddy.invoke<{ name: string; sourcePath: string }[]>("files:pick"),

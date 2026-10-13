@@ -16,10 +16,15 @@ describe("api 与主进程的通道契约", () => {
     bridge.handlers.set("employee:remove", () => makeEmployee({ id: "emp_1" }));
     bridge.handlers.set("room:send", () => makeMessage());
     bridge.handlers.set("approval:resolve", () => true);
+    bridge.handlers.set("room:repair", () => ({ roomId: "room_1", kept: 0, quarantined: 0, backupPath: null }));
+    bridge.handlers.set("settings:set-builtin-key", () => ({ ok: true }));
 
     await api.removeEmployee("emp_1");
     await api.send("room_1", "干活", [{ name: "a.txt", sourcePath: "E:/a.txt" }]);
     await api.resolveApproval("appr_1", true);
+    await api.repairRoom("room_1");
+    await api.setBuiltinApiKey("sk-1");
+    await api.setBuiltinApiKey(null);
 
     expect(bridge.calls).toEqual([
       { channel: "employee:remove", payload: { id: "emp_1" } },
@@ -32,6 +37,9 @@ describe("api 与主进程的通道契约", () => {
         },
       },
       { channel: "approval:resolve", payload: { approvalId: "appr_1", approved: true } },
+      { channel: "room:repair", payload: { roomId: "room_1" } },
+      { channel: "settings:set-builtin-key", payload: { apiKey: "sk-1" } },
+      { channel: "settings:set-builtin-key", payload: { apiKey: null } },
     ]);
   });
 

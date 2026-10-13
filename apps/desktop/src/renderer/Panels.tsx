@@ -619,6 +619,12 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
   const [frameworks, setFrameworks] = useState(boot.frameworks);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+
+  const flash = (message: string): void => {
+    setSaved(message);
+    setTimeout(() => setSaved(null), 2500);
+  };
 
   const save = async (): Promise<void> => {
     const patch: DeepPartial<BuddyConfig> = {
@@ -633,14 +639,38 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
     try {
       const next = await api.updateSettings(patch);
       setConfig(next);
-      setSaved("已保存");
+      flash("已保存");
       setError(null);
-      setTimeout(() => setSaved(null), 2500);
       await onChanged();
     } catch (cause) {
       // 常见触发：数字输入框被清空 → 0 无法通过校验。必须让用户看见，而不是静默失败。
       setSaved(null);
       setError(`保存失败：${String(cause)}`);
+    }
+  };
+
+  // 密钥写进去就再也不回显：界面只知道「设没设」，明文只在主进程与加密文件之间流动。
+  const saveApiKey = async (): Promise<void> => {
+    try {
+      await api.setBuiltinApiKey(apiKeyDraft.trim());
+      setApiKeyDraft("");
+      setError(null);
+      flash("密钥已保存");
+      await onChanged();
+    } catch (cause) {
+      setError(`保存密钥失败：${String(cause)}`);
+    }
+  };
+
+  const clearApiKey = async (): Promise<void> => {
+    try {
+      await api.setBuiltinApiKey(null);
+      setApiKeyDraft("");
+      setError(null);
+      flash("密钥已清除");
+      await onChanged();
+    } catch (cause) {
+      setError(`清除密钥失败：${String(cause)}`);
     }
   };
 
@@ -966,18 +996,21 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
             />
           </div>
           <div className="field">
-            <label>API Key</label>
+            <label>API Key（存进系统安全存储，界面不回显）</label>
             <input
               type="password"
-              value={config.builtinAgent.apiKey ?? ""}
-              onChange={(event) =>
-                setConfig({
-                  ...config,
-                  builtinAgent: { ...config.builtinAgent, apiKey: event.target.value || null },
-                })
-              }
+              value={apiKeyDraft}
+              placeholder={boot.builtinApiKeySet ? "已设置，输入新值可覆盖" : "未设置"}
+              onChange={(event) => setApiKeyDraft(event.target.value)}
             />
           </div>
+        </div>
+        <div className="skill-inline" style={{ marginTop: 8 }}>
+          <button disabled={apiKeyDraft.trim() === ""} onClick={() => void saveApiKey()}>
+            保存密钥
+          </button>
+          {boot.builtinApiKeySet && <button onClick={() => void clearApiKey()}>清除密钥</button>}
+          <span className="sub">{boot.builtinApiKeySet ? "当前：已设置" : "当前：未设置"}</span>
         </div>
 
         </div></details>

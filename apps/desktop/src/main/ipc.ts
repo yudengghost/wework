@@ -4,6 +4,7 @@ import type {
   BuddyConfig,
   DeepPartial,
   Employee,
+  MessageLogRepair,
   Message,
   PermissionMode,
 } from "@buddy/core";
@@ -17,6 +18,7 @@ import {
   probeFrameworks,
   type AppServices,
 } from "./services";
+import { withoutApiKey } from "./secrets";
 
 export interface CreateEmployeePayload {
   displayName: string;
@@ -42,7 +44,7 @@ export function registerIpc(
   services: AppServices,
   getWindow: () => BrowserWindow | null,
 ): void {
-  const { config, employees, rooms, messages, memory, service, dataDir } = services;
+  const { config, employees, rooms, messages, memory, service, dataDir, secrets } = services;
   const send = (channel: string, payload: unknown): void => {
     getWindow()?.webContents.send(channel, payload);
   };
@@ -60,7 +62,9 @@ export function registerIpc(
   handle("app:bootstrap", async () => ({
     dataDir,
     bootstrapDir: services.bootstrapDir,
-    config: config.get(),
+    // 明文密钥永不发给渲染层：这里只给一份抹掉密钥的配置 + 一个「设没设」的布尔量。
+    config: withoutApiKey(config.get()),
+    builtinApiKeySet: (await secrets.getBuiltinApiKey()) !== null,
     employees: employees.list(),
     removedEmployees: employees.listRemoved(),
     rooms: rooms.list(),
@@ -97,8 +101,21 @@ export function registerIpc(
     return true;
   });
 
-  handle<DeepPartial<BuddyConfig>, BuddyConfig>("settings:update", (patch) =>
-    config.update(patch),
+  handle<DeepPartial<BuddyConfig>, BuddyConfig>("settings:update", (patch) => {
+    // API Key 只走 settings:set-builtin-key（加密存储）。这里剥掉它，
+    // 免得任何一条路径把明文写进 config.json。
+    if (patch.builtinAgent === undefined) return config.update(patch);
+    const { apiKey: _ignored, ...rest } = patch.builtinAgent;
+    return config.update({ ...patch, builtinAgent: rest });
+  });
+
+  /** 存或清内置兜底员工的 API Key；密钥只在主进程与加密文件之间流动。 */
+  handle<{ apiKey: string | null }, { ok: true }>(
+    "settings:set-builtin-key",
+    async ({ apiKey }) => {
+      await secrets.setBuiltinApiKey(apiKey);
+      return { ok: true };
+    },
   );
 
   handle("launcher:probe", () => probeFrameworks(config));
@@ -220,6 +237,11 @@ export function registerIpc(
 
   handle<{ roomId: string }, Message[]>("room:messages", ({ roomId }) =>
     messages.readAll(roomId),
+  );
+
+  /** 修复读不出来的消息记录：坏行隔离到备份文件，能解析的保留。 */
+  handle<{ roomId: string }, MessageLogRepair>("room:repair", ({ roomId }) =>
+    messages.repair(roomId),
   );
 
   handle<

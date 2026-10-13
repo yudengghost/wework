@@ -1,4 +1,5 @@
 import type { Employee, Message, Room } from "@buddy/core";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent } from "./api";
@@ -16,6 +17,28 @@ import {
 export interface PendingFile {
   name: string;
   sourcePath: string;
+}
+
+/** 离底部 60px 以内算「贴着底」：只有贴着底时才让新内容把视图拽下去。 */
+export function isNearBottom(
+  element: { scrollHeight: number; scrollTop: number; clientHeight: number },
+  threshold = 60,
+): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight < threshold;
+}
+
+/**
+ * 一次滚动事件之后还要不要「跟随底部」。
+ *
+ * 我们自己的贴底滚动也会触发 scroll 事件——那时候视图在底部，绝不能被当成
+ * 「用户往上翻了」而关掉跟随（虚拟列表挂载时的内部滚动尤其容易踩这个坑）。
+ */
+export function followAfterScroll(
+  element: { scrollHeight: number; scrollTop: number; clientHeight: number },
+  programmaticTop: number,
+): boolean {
+  if (programmaticTop >= 0 && Math.abs(element.scrollTop - programmaticTop) < 2) return true;
+  return isNearBottom(element);
 }
 
 /** 附件图片要用 file:// 显示；路径里的空格与 # ? 必须编码，否则链接会断。 */
@@ -48,7 +71,38 @@ interface RoomViewProps {
   readOnly?: boolean;
   /** 只读时提供的补救入口：新建员工并接续这段历史。 */
   onAdopt?: () => void;
+  /** 消息记录读不出来时的原因；有值时给出「隔离坏行」的修复入口。 */
+  transcriptError?: string | null;
+  /** 修复动作本身；抛错会在界面里显示。 */
+  onRepairTranscript?: () => Promise<void>;
 }
+
+const StreamRow = memo(function StreamRow({
+  employeeId,
+  name,
+  text,
+}: {
+  employeeId: string;
+  name: string;
+  text: string;
+}) {
+  return (
+    <div className="msg-row stream">
+      <Avatar name={name} seed={employeeId} small />
+      <div className="msg-col">
+        <div className="msg-head">
+          <span className="who">{name}</span>
+          <span className="stream-dots">
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
+        <div className="bubble">{text || "正在思考…"}</div>
+      </div>
+    </div>
+  );
+});
 
 interface MessageRowProps {
   mine: boolean;
@@ -121,17 +175,55 @@ export function RoomView(props: RoomViewProps) {
   const [pending, setPending] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-  const atBottomRef = useRef(true);
 
   /**
    * 有新消息或流式增量时滚到底部，但只在用户本来就贴着底部时才滚——
    * 否则用户往回翻历史会被不断拽回去。
    */
   const streamLength = Object.values(streams).reduce((total, text) => total + text.length, 0);
-  useEffect(() => {
+  const streamingIds = Object.keys(streams);
+  const rowCount = messages.length + streamingIds.length;
+
+  // 长会话只把可见的几行放进 DOM：几千条历史全量挂载时，滚动与流式刷新都会发卡。
+  const virtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => listRef.current,
+    // 76 = 单行气泡 62 + 行距 14：先按这间房最常见的行高估，量到之后库会逐行修正。
+    estimateSize: () => 76,
+    overscan: 10,
+  });
+
+  const followBottomRef = useRef(true);
+  const programmaticTopRef = useRef(-1);
+
+  /**
+   * 贴底：直接按 scrollHeight 落到底。
+   *
+   * 不使用虚拟列表的 scrollToIndex——它要求行已经量过，而挂载、切房间、流式首帧
+   * 这些时刻都还没有；scrollHeight 则一直是本文的真实高度（定位层是全高的）。
+   */
+  const scrollToLatest = (): void => {
     const element = listRef.current;
-    if (element && atBottomRef.current) element.scrollTop = element.scrollHeight;
-  }, [messages.length, streamLength]);
+    if (!element) return;
+    // behavior: instant —— 流式每来一小段都做一次平滑滚动动画，又卡又飘。
+    const before = element.scrollTop;
+    element.scrollTo({ top: element.scrollHeight, behavior: "instant" });
+    programmaticTopRef.current = element.scrollTop;
+    // 虚拟列表只在 scroll 事件里重新读位置、重算窗口，而 programmatic 滚动不一定触发它
+    // （窗口被遮挡时 Chromium 会扣下滚动事件）。位置真的变了就补一次通知，语义同浏览器。
+    if (element.scrollTop !== before) element.dispatchEvent(new Event("scroll"));
+  };
+
+  // 换房间就重新贴底（组件会被复用，所以必须显式重置）。
+  useEffect(() => {
+    followBottomRef.current = true;
+    scrollToLatest();
+  }, [room.id]);
+
+  useEffect(() => {
+    if (!followBottomRef.current || rowCount === 0) return;
+    scrollToLatest();
+  }, [rowCount, streamLength]);
 
   const members = employees.filter((employee) => room.memberIds.includes(employee.id));
   const isDirect = room.kind === "direct";
@@ -191,6 +283,16 @@ export function RoomView(props: RoomViewProps) {
     }
   };
 
+  const repairTranscript = async (): Promise<void> => {
+    if (props.onRepairTranscript === undefined) return;
+    try {
+      await props.onRepairTranscript();
+      setError(null);
+    } catch (cause) {
+      setError(String(cause));
+    }
+  };
+
   /** 拖拽进来的文件只能靠 preload 的 webUtils 拿真实路径；拿不到就明确报错。 */
   const handleDrop = (event: React.DragEvent): void => {
     event.preventDefault();
@@ -208,8 +310,6 @@ export function RoomView(props: RoomViewProps) {
     }
     setPending((prev) => [...prev, ...resolved]);
   };
-
-  const streamingIds = Object.keys(streams);
 
   return (
     <>
@@ -291,6 +391,22 @@ export function RoomView(props: RoomViewProps) {
         </div>
       )}
 
+      {props.transcriptError ? (
+        <div className="transcript-error">
+          <div className="grow">
+            这个房间的消息记录读不出来：{props.transcriptError}
+            <div className="sub">
+              多半是某一行坏掉了。隔离这一行之后房间可以继续用，坏行会原样备份在数据目录里。
+            </div>
+          </div>
+          {props.onRepairTranscript ? (
+            <button className="primary" onClick={() => void repairTranscript()}>
+              隔离坏行并重新加载
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <div
         className="messages"
         ref={listRef}
@@ -302,56 +418,74 @@ export function RoomView(props: RoomViewProps) {
         onDragLeave={() => setDragOver(false)}
         onDrop={props.readOnly ? undefined : handleDrop}
         onScroll={(event) => {
-          const element = event.currentTarget;
-          atBottomRef.current =
-            element.scrollHeight - element.scrollTop - element.clientHeight < 60;
+          followBottomRef.current = followAfterScroll(event.currentTarget, programmaticTopRef.current);
         }}
       >
-        {messages.length === 0 && (
+        {rowCount === 0 && (
           <div className="empty">
             {isDirect
               ? `还没有聊过。直接说要 ${directPartner?.displayName ?? "这位员工"} 做什么就行。`
               : `还没有消息。用 @ 指派任务，例如 “@${members[0]?.displayName ?? "小码"} 帮我改个 bug”。`}
           </div>
         )}
-        {messages.map((message) => {
-          const mine = message.sender.kind === "human";
-          const who =
-            message.sender.kind === "human" ? "你" : nameOf(message.sender.employeeId);
-          const seed =
-            message.sender.kind === "human" ? "human" : message.sender.employeeId;
-          const working =
-            message.sender.kind === "employee" && running[message.sender.employeeId];
-          return (
-            <MessageRow
-              key={message.id}
-              mine={mine}
-              who={who}
-              seed={seed}
-              createdAt={message.createdAt}
-              body={message.body}
-              attachments={message.attachments}
-              working={working === true}
-            />
-          );
-        })}
-
-        {streamingIds.map((employeeId) => (
-          <div key={employeeId} className="msg-row stream">
-            <Avatar name={nameOf(employeeId)} seed={employeeId} small />
-            <div className="msg-col">
-              <div className="msg-head">
-                <span className="who">{nameOf(employeeId)}</span>
-                <span className="stream-dots">
-                  <i />
-                  <i />
-                  <i />
-                </span>
+        <div
+          className="message-flow"
+          style={{
+            height: `${virtualizer.getTotalSize()}px`,
+            position: "relative",
+            width: "100%",
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const index = virtualRow.index;
+            const message = messages[index];
+            const employeeId = message ? "" : (streamingIds[index - messages.length] ?? "");
+            return (
+              <div
+                key={message ? message.id : `stream:${employeeId}`}
+                className="message-slot"
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                {/* 量高度的节点必须和 transform 分开：虚拟列表量的是元素自身，
+                    而 transform 会污染它读到的位置，那样子项尺寸永远更新不了。 */}
+                <div className="message-slot-inner" data-index={index} ref={virtualizer.measureElement}>
+                {message ? (
+                  <MessageRow
+                    mine={message.sender.kind === "human"}
+                    who={
+                      message.sender.kind === "human"
+                        ? "你"
+                        : nameOf(message.sender.employeeId)
+                    }
+                    seed={
+                      message.sender.kind === "human" ? "human" : message.sender.employeeId
+                    }
+                    createdAt={message.createdAt}
+                    body={message.body}
+                    attachments={message.attachments}
+                    working={
+                      message.sender.kind === "employee" &&
+                      running[message.sender.employeeId] === true
+                    }
+                  />
+                ) : (
+                  <StreamRow
+                    employeeId={employeeId}
+                    name={nameOf(employeeId)}
+                    text={streams[employeeId] ?? ""}
+                  />
+                )}
+                </div>
               </div>
-              <div className="bubble">{streams[employeeId] || "正在思考…"}</div>
-            </div>
-          </div>
-        ))}
+            );
+          })}
+        </div>
       </div>
 
       {approvals.map((approval) => (

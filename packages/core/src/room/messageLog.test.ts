@@ -105,3 +105,55 @@ describe("MessageLog", () => {
     expect(await log.count("room_2")).toBe(1);
   });
 });
+
+describe("MessageLog 修复坏行", () => {
+  it("把坏行隔离到备份文件，能解析的消息一条不少", async () => {
+    const store = new FileStore();
+    const file = join(root, "rooms", "room_1", "messages.jsonl");
+    const good = JSON.stringify(message({ id: "msg_1", body: "好好的" }));
+    const broken = "{这不是合法 JSON}";
+    await store.write(file, `${good}\n${broken}\n`);
+
+    const repair = await log.repair("room_1");
+
+    expect(repair.kept).toBe(1);
+    expect(repair.quarantined).toBe(1);
+    expect(repair.backupPath).toBeTruthy();
+    const all = await log.readAll("room_1");
+    expect(all.map((item) => item.id)).toEqual(["msg_1"]);
+    // 坏行没有被丢掉：原样躺在备份文件里，随时能人工看一眼
+    expect(await store.read(repair.backupPath as string)).toBe(`${broken}\n`);
+  });
+
+  it("没有坏行时不写备份、不动原文件", async () => {
+    const store = new FileStore();
+    const file = join(root, "rooms", "room_1", "messages.jsonl");
+    const contents = `${JSON.stringify(message({ id: "msg_1" }))}\n`;
+    await store.write(file, contents);
+
+    const repair = await log.repair("room_1");
+
+    expect(repair).toEqual({ roomId: "room_1", kept: 1, quarantined: 0, backupPath: null });
+    expect(await store.read(file)).toBe(contents);
+  });
+
+  it("房间没有日志时也能安全调用", async () => {
+    const repair = await log.repair("room_missing");
+
+    expect(repair).toEqual({ roomId: "room_missing", kept: 0, quarantined: 0, backupPath: null });
+  });
+
+  it("校验失败的整行（合法 JSON、非法消息）也算坏行", async () => {
+    const store = new FileStore();
+    const file = join(root, "rooms", "room_1", "messages.jsonl");
+    await store.write(
+      file,
+      `${JSON.stringify(message({ id: "msg_1" }))}\n${JSON.stringify({ id: "", roomId: "" })}\n`,
+    );
+
+    const repair = await log.repair("room_1");
+
+    expect(repair.kept).toBe(1);
+    expect(repair.quarantined).toBe(1);
+  });
+});

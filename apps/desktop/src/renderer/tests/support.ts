@@ -3,6 +3,33 @@ import { defaultConfig } from "@buddy/core";
 
 import type { Bootstrap } from "../api";
 
+// jsdom 没有 ResizeObserver，而虚拟列表用它观察视口与行高。给个最小替身就够了：
+// jsdom 本来也没有真实布局，行高会一直用估算值。
+if (!("ResizeObserver" in globalThis)) {
+  class ResizeObserverStub {
+    observe(): void {
+      // 不需要真的观察
+    }
+    unobserve(): void {
+      // 不需要真的取消观察
+    }
+    disconnect(): void {
+      // 不需要真的断开
+    }
+  }
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+}
+
+// jsdom 也没有 Element.scrollTo。按浏览器语义补上：改位置并派发 scroll 事件。
+if (typeof Element.prototype.scrollTo !== "function") {
+  (Element.prototype as unknown as { scrollTo: (options?: ScrollToOptions) => void }).scrollTo =
+    function (this: Element, options?: ScrollToOptions): void {
+      const top = options?.top;
+      if (typeof top === "number") (this as HTMLElement).scrollTop = top;
+      this.dispatchEvent(new Event("scroll"));
+    };
+}
+
 /** 一次渲染层 → 主进程的调用记录，用来断言「界面到底发了什么」。 */
 export interface BridgeCall {
   channel: string;
@@ -100,6 +127,7 @@ export function makeBootstrap(patch: Partial<Bootstrap> = {}): Bootstrap {
     dataDir: "E:/tmp/data",
     bootstrapDir: "E:/tmp/data",
     config: makeConfig(),
+    builtinApiKeySet: false,
     employees: [],
     removedEmployees: [],
     rooms: [],

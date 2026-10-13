@@ -90,6 +90,8 @@ $env:BUDDY_LIVE_TESTS="1"; npm run test -w @buddy/core   # 真机联调（会真
 - 员工默认在**自己的工作目录**里干活（`%APPDATA%\Buddy\data\workspaces\<员工名>`），不会动你的代码仓库，除非你把工作目录指过去。
 - 员工**可以同名**（内部用 id 区分，工作目录也会自动错开）。但同一个房间里如果有两位同名员工，`@这个名字` 不会被投递给任何人——房间会写明是哪些人撞了名字，改名或只留一位即可恢复。
 - 员工申请招人时，如果申请里写了工作目录，审批卡片会把那个目录一起显示出来，看清楚再点「批准招人」。
+- 内置兜底员工的 API Key 存在**系统安全存储**里（Windows 用 DPAPI 加密，落在数据目录的 `secrets.json`），不进 `config.json`、不会被发到界面，界面上只显示「已设置 / 未设置」。系统不支持安全存储时会拒绝保存，而不是退化成明文。
+- 消息记录里万一混进坏行（例如断电写歪了）导致房间打不开，界面会给出「隔离坏行并重新加载」：能解析的消息一条不少，坏行原样备份在 `rooms\<roomId>\messages.jsonl.bad-<时间>`，不会静默丢弃。
 - 应用不读取、不打包、不代持任何 CLI 凭证。
 
 ## 数据位置
@@ -97,6 +99,7 @@ $env:BUDDY_LIVE_TESTS="1"; npm run test -w @buddy/core   # 真机联调（会真
 ```
 %APPDATA%\Buddy\data\        （可在设置里改到别处，需重启生效）
   config.json          全局配置（永远留在默认位置，避免改坏目录后找不到配置）
+  secrets.json         加密后的密钥（与 config.json 同级，同样是默认位置）
   employees.json       员工档案
   rooms.json           房间
   rooms\<roomId>\messages.jsonl   房间消息

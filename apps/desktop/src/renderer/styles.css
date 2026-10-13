@@ -721,6 +721,47 @@ code {
   margin-top: 2px;
 }
 
+.transcript-error {
+  margin: 10px 22px 0;
+  padding: 11px 13px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--danger) 12%, var(--surface-1));
+  border: 1px solid color-mix(in oklch, var(--danger) 36%, transparent);
+  flex: none;
+}
+
+.transcript-error .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.transcript-error .sub {
+  margin-top: 3px;
+}
+
+/* 虚拟列表的定位层：每行绝对定位，行距靠 padding 而不是 gap（gap 对绝对定位无效）。 */
+.message-flow {
+  /* flex: none 是必需的：.messages 是列向 flex 容器，默认会把这块按容器高度压扁，
+     于是行溢出、滚动条算不到真实长度，也就永远滚不到会话末尾。 */
+  flex: none;
+}
+
+.message-slot {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 行距放在被测量的节点上（padding 属于 border box，量得到），
+   定位层只负责 translateY。 */
+.message-slot-inner {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 14px;
+}
+
 .toasts {
   position: fixed;
   right: 20px;

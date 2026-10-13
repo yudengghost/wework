@@ -4,6 +4,16 @@ import { messageSchema, type Message } from "../domain/schema";
 import { DataParseError } from "../storage/errors";
 import type { TextFileStore } from "../storage/fileStore";
 
+export interface MessageLogRepair {
+  roomId: string;
+  /** 修好之后还剩下多少条可读消息。 */
+  kept: number;
+  /** 被隔离出来的坏行数。 */
+  quarantined: number;
+  /** 坏行存到了哪个文件；没有坏行时为 null。 */
+  backupPath: string | null;
+}
+
 export class MessageLog {
   /**
    * 已解析消息的进程内缓存。
@@ -100,6 +110,53 @@ export class MessageLog {
   async removeRoom(roomId: string): Promise<void> {
     this.cache.delete(roomId);
     await this.store.remove(join(this.dataDir, "rooms", roomId));
+  }
+
+  /**
+   * 修复「一行坏数据让整个房间打不开」。
+   *
+   * 能解析的行原样留下，读不出来的行**不静默丢弃**：原样写进
+   * `<messages.jsonl>.bad-<时间戳>`，人可以去看、可以手工救。
+   * 请在房间没有运行时调用：这次重写会覆盖期间新追加的消息。
+   */
+  async repair(roomId: string): Promise<MessageLogRepair> {
+    const path = this.filePath(roomId);
+    const raw = await this.store.read(path);
+    if (raw === null) return { roomId, kept: 0, quarantined: 0, backupPath: null };
+
+    const kept: Message[] = [];
+    const quarantined: string[] = [];
+    for (const rawLine of raw.split("\n")) {
+      const line = rawLine.trim();
+      if (line === "") continue;
+
+      let json: unknown;
+      try {
+        json = JSON.parse(line);
+      } catch {
+        quarantined.push(line);
+        continue;
+      }
+
+      const parsed = messageSchema.safeParse(json);
+      if (parsed.success) kept.push(parsed.data);
+      else quarantined.push(line);
+    }
+
+    if (quarantined.length === 0) {
+      return { roomId, kept: kept.length, quarantined: 0, backupPath: null };
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = `${path}.bad-${stamp}`;
+    await this.store.write(backupPath, `${quarantined.join("\n")}\n`);
+    await this.store.write(
+      path,
+      kept.length === 0 ? "" : `${kept.map((message) => JSON.stringify(message)).join("\n")}\n`,
+    );
+    this.cache.set(roomId, kept);
+
+    return { roomId, kept: kept.length, quarantined: quarantined.length, backupPath };
   }
 
   private filePath(roomId: string): string {

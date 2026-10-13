@@ -54,6 +54,38 @@ describe("ProcessRunner", () => {
     expect(lines).toEqual(["boom"]);
   });
 
+  it("输出不大时完整保留 stdout，并如实统计字节数", async () => {
+    const result = await runNode(["--echo-stdin"], { stdin: "你好 stdin" });
+
+    expect(result.stdoutTruncated).toBe(false);
+    expect(result.stdoutBytes).toBe(Buffer.byteLength(result.stdout));
+  });
+
+  it("stdout 超过 captureBytes 时只留前缀并标记截断，逐行回调不受影响", async () => {
+    const lines: string[] = [];
+
+    const result = await runNode(["--lines", "400"], {
+      onStdoutLine: (line: string) => lines.push(line),
+      captureBytes: 128,
+    });
+
+    // 适配器真正消费的是逐行回调：截断不能影响它。
+    expect(lines).toHaveLength(400);
+    expect(result.stdoutTruncated).toBe(true);
+    expect(result.stdout).not.toBe("");
+    expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(128);
+    // 字节数统计的是完整观测到的量，不是留下来的量。
+    expect(result.stdoutBytes).toBeGreaterThan(1000);
+  });
+
+  it("captureBytes 为 0 表示只计数、不保留正文", async () => {
+    const result = await runNode(["--lines", "3"], { captureBytes: 0 });
+
+    expect(result.stdout).toBe("");
+    expect(result.stdoutTruncated).toBe(true);
+    expect(result.stdoutBytes).toBeGreaterThan(0);
+  });
+
   it("超时会杀掉进程并如实标记", async () => {
     const startedAt = Date.now();
 

@@ -27,7 +27,9 @@ import {
   type SkillInfo,
   type SkillsSettings,
 } from "@buddy/core";
-import { app } from "electron";
+import { app, safeStorage } from "electron";
+
+import { createSecretStore, type SecretStore } from "./secrets";
 
 export interface AppServices {
   /** 配置与数据的默认落点，固定不变。 */
@@ -37,6 +39,7 @@ export interface AppServices {
   /** 可编辑的提示词文件路径（首次启动会自动写出默认值）。 */
   promptsPath: string;
   store: FileStore;
+  secrets: SecretStore;
   config: ConfigStore;
   employees: EmployeeStore;
   rooms: RoomStore;
@@ -54,6 +57,21 @@ export async function createServices(): Promise<AppServices> {
   // 配置本身永远留在默认位置：否则把数据目录改坏就再也找不到配置了。
   const config = new ConfigStore(store, join(bootstrapDir, "config.json"));
   await config.load();
+
+  // 密钥与配置分开放：config.json 是用户会手改、可能被拷来拷去的文件，
+  // 明文密钥不该混在里面。safeStorage 在 Windows 上就是 DPAPI（当前用户绑定）。
+  const secrets = createSecretStore(store, join(bootstrapDir, "secrets.json"), {
+    available: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (plain) => safeStorage.encryptString(plain).toString("base64"),
+    decrypt: (cipher) => safeStorage.decryptString(Buffer.from(cipher, "base64")),
+  });
+
+  // 迁移：老版本把明文 Key 写在 config.json 里。搬进安全存储，并把明文从配置里抹掉。
+  const legacyApiKey = config.get().builtinAgent.apiKey;
+  if (legacyApiKey !== null && secrets.canStoreSecrets()) {
+    await secrets.setBuiltinApiKey(legacyApiKey);
+    await config.update({ builtinAgent: { apiKey: null } });
+  }
 
   // 优先级：环境变量（便于测试与绿色版）> 设置里指定 > 默认位置。
   const dataDir = process.env.BUDDY_DATA_DIR ?? config.get().storage.dataDir ?? bootstrapDir;
@@ -97,6 +115,7 @@ export async function createServices(): Promise<AppServices> {
     dataDir,
     promptsPath,
     store,
+    secrets,
     config,
     employees,
     rooms,

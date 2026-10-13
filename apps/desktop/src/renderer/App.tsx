@@ -35,6 +35,7 @@ export function App() {
   const noticeSeq = useRef(0);
   const noticeTimers = useRef<number[]>([]);
   const [approvals, setApprovals] = useState<ApprovalEvent[]>([]);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>("none");
   const [createRoomOpen, setCreateRoomOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{
@@ -110,13 +111,31 @@ export function App() {
     roomRef.current = selectedRoomId;
     if (!selectedRoomId) {
       setMessages([]);
+      setTranscriptError(null);
       return;
     }
     void api
       .messages(selectedRoomId)
-      .then(setMessages)
-      .catch((cause) => setError(String(cause)));
+      .then((next) => {
+        setMessages(next);
+        setTranscriptError(null);
+      })
+      .catch((cause) => setTranscriptError(String(cause)));
   }, [selectedRoomId]);
+
+  /** 隔离坏行后立刻重读，房间当场恢复可用。 */
+  const repairTranscript = async (): Promise<void> => {
+    const roomId = selectedRoomId;
+    if (!roomId) return;
+    const result = await api.repairRoom(roomId);
+    setMessages(await api.messages(roomId));
+    setTranscriptError(null);
+    pushNotice(
+      result.quarantined === 0
+        ? "没有发现坏行，已重新读取"
+        : `已隔离 ${result.quarantined} 行坏记录，保留 ${result.kept} 条消息；坏行备份在 ${result.backupPath ?? ""}`,
+    );
+  };
 
   useEffect(() => {
     const offMessage = window.buddy.onMessage((message) => {
@@ -367,6 +386,8 @@ export function App() {
             readOnly={!selectedRoom.memberIds.some((id) =>
               boot.employees.some((item) => item.id === id),
             )}
+            transcriptError={transcriptError}
+            onRepairTranscript={repairTranscript}
             onAdopt={
               selectedRoom.memberIds.some((id) =>
                 boot.employees.some((item) => item.id === id),

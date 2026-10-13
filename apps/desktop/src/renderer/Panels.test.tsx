@@ -101,3 +101,70 @@ describe("EmployeesPanel 记忆", () => {
     await waitFor(() => expect(screen.getByText(/员工不存在/)).toBeTruthy());
   });
 });
+
+describe("SettingsPanel 内置兜底密钥", () => {
+  it("密钥不回显，保存走专用通道", async () => {
+    const bridge = installBridge();
+    bridge.handlers.set("settings:set-builtin-key", () => ({ ok: true }));
+    render(
+      <SettingsPanel
+        boot={makeBootstrap({ builtinApiKeySet: true })}
+        onClose={() => undefined}
+        onChanged={noop}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText(/已设置/) as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(screen.getByText("当前：已设置")).toBeTruthy();
+
+    fireEvent.change(input, { target: { value: "sk-new" } });
+    fireEvent.click(screen.getByText("保存密钥"));
+
+    await waitFor(() =>
+      expect(
+        bridge.calls.some(
+          (call) =>
+            call.channel === "settings:set-builtin-key" &&
+            JSON.stringify(call.payload) === JSON.stringify({ apiKey: "sk-new" }),
+        ),
+      ).toBe(true),
+    );
+    expect(input.value).toBe("");
+  });
+
+  it("已设置时有清除入口，清除会把 null 交给主进程", async () => {
+    const bridge = installBridge();
+    bridge.handlers.set("settings:set-builtin-key", () => ({ ok: true }));
+    render(
+      <SettingsPanel
+        boot={makeBootstrap({ builtinApiKeySet: true })}
+        onClose={() => undefined}
+        onChanged={noop}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("清除密钥"));
+
+    await waitFor(() =>
+      expect(bridge.calls).toContainEqual({
+        channel: "settings:set-builtin-key",
+        payload: { apiKey: null },
+      }),
+    );
+  });
+
+  it("未设置时不显示清除入口", () => {
+    installBridge();
+    render(
+      <SettingsPanel
+        boot={makeBootstrap({ builtinApiKeySet: false })}
+        onClose={() => undefined}
+        onChanged={noop}
+      />,
+    );
+
+    expect(screen.getByText("当前：未设置")).toBeTruthy();
+    expect(screen.queryByText("清除密钥")).toBeNull();
+  });
+});
