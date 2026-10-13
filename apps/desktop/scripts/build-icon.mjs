@@ -126,10 +126,11 @@ async function main() {
   const source = await readFile(svgPath, "utf8");
   const head = source.slice(0, source.indexOf("<svg"));
   const openTag = pick(/<svg[\s\S]*?>/, source);
-  const defs = pick(/<defs>[\s\S]*?<\/defs>/, source);
-  const polyline = pick(/<polyline id="w-outer"[\s\S]*?\/>/, source);
-  const cut = pick(/<polyline id="w-slot-cut"[\s\S]*?\/>/, source);
-  const rect = pick(/<rect id="w-base"[\s\S]*?\/>/, source);
+  // 元素可能被格式化成多行，所以 id 与标签之间允许换行。
+  const polyline = pick(/<polyline\s[^>]*id="w-outer"[\s\S]*?\/>/, source);
+  const rect = pick(/<rect\s[^>]*id="w-base"[\s\S]*?\/>/, source);
+  // 画 W 用到的 <defs> 是可选的（现在没有 mask 就整块不存在）。
+  const defs = /<defs>[\s\S]*?<\/defs>/.exec(source)?.[0] ?? "";
   const strokeWidth = Number(attrOf(polyline, "stroke-width"));
   const baseStrokeWidth = Number(attrOf(rect, "stroke-width"));
 
@@ -142,14 +143,16 @@ async function main() {
   const withAttr = (element, name, value) =>
     element.replace(new RegExp(`${name}="[^"]*"`), `${name}="${value}"`);
   /** 生成一份只含指定图形、坐标固定在 64×64 空间的 SVG（测量时铺满 512px，故 1 单位 = 8px）。 */
-  const doc = (shapes, box = nativeBox, px = measurePx) =>
+  const doc = (shapes, box = nativeBox, px = measurePx, probeClip = "") =>
     `${openTag
       .replace(/viewBox="[^"]*"/, `viewBox="${box}"`)
       .replace(/width="[^"]*"/, `width="${px}"`)
-      .replace(/height="[^"]*"/, `height="${px}"`)}${defs}${shapes}</svg>`;
+      .replace(/height="[^"]*"/, `height="${px}"`)}${defs}${probeClip}${shapes}</svg>`;
   const scale = measurePx / 64;
-  const inkBox = async (shapes) => {
-    const box = await win.webContents.executeJavaScript(measureScript(doc(shapes)));
+  const inkBox = async (shapes, probeClip = "") => {
+    const box = await win.webContents.executeJavaScript(
+      measureScript(doc(shapes, nativeBox, measurePx, probeClip)),
+    );
     return {
       left: box.minX / scale,
       top: box.minY / scale,
@@ -158,14 +161,21 @@ async function main() {
     };
   };
 
-  // 1. 底座长度对齐 W 的横向跨度：描边居中，所以路径两端各内缩半个底座描边宽
-  //    （底座的描边与 W 的笔画粗细不同，这里必须用各自的宽度算）。
+  // 1. 底座长度对齐 W 的**底部**宽度（两个谷的外沿），不是顶宽：
+  //    只量最下面一截墨迹，所以再叠一层只留底带的裁剪。
   const wBox = await inkBox(polyline);
+  const bottomProbe = `<clipPath id="probe-bottom" clipPathUnits="userSpaceOnUse"><rect x="0" y="${
+    round(wBox.bottom) - 4
+  }" width="64" height="4" /></clipPath>`;
+  const baseBox = await inkBox(
+    `<g clip-path="url(#probe-bottom)">${polyline}</g>`,
+    bottomProbe,
+  );
   const rBox = await inkBox(rect);
   const alignedRect = withAttr(
-    withAttr(rect, "x", round(wBox.left + baseStrokeWidth / 2)),
+    withAttr(rect, "x", round(baseBox.left + baseStrokeWidth / 2)),
     "width",
-    round(wBox.right - wBox.left - baseStrokeWidth),
+    round(baseBox.right - baseBox.left - baseStrokeWidth),
   );
 
   // 2. 整体（含描边与尖角）的外接框 → 正外接正方形，这就是「总比例正方形」。
@@ -184,14 +194,14 @@ async function main() {
       ` = ${round(wBox.right - wBox.left)} × ${round(wBox.bottom - wBox.top)}`,
   );
   console.log(
-    `底座墨迹 x[${round(wBox.left)}, ${round(wBox.right)}]（对齐前 x[${round(
-      rBox.left,
-    )}, ${round(rBox.right)}]）→ 与 W 等宽`,
+    `W 顶宽 ${round(wBox.right - wBox.left)}、底宽 ${round(
+      baseBox.right - baseBox.left,
+    )} → 底座对齐到底宽（原来的底座墨迹 x[${round(rBox.left)}, ${round(rBox.right)}]）`,
   );
   console.log(
     `W 与底座间隙 ${round(rBox.top - wBox.bottom)}；底座中空高度 ${round(
       Number(attrOf(alignedRect, "height")) - Number(attrOf(alignedRect, "stroke-width")),
-    )}；W 挖槽后两侧留墨 ${round((strokeWidth - Number(attrOf(cut, "stroke-width"))) / 2)}`,
+    )}`,
   );
   console.log(
     `整体墨迹 ${round(fBox.right - fBox.left)} × ${round(fBox.bottom - fBox.top)}` +
