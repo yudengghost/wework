@@ -103,6 +103,65 @@ describe("EmployeesPanel 记忆", () => {
 });
 
 describe("EmployeesPanel 彻底删除", () => {
+  it("卡上就能看到职责摘要，展开能读全文并改掉", async () => {
+    const bridge = installBridge();
+    const employee = makeEmployee({
+      displayName: "小码",
+      systemPrompt: "你是资深后端工程师，只关注正确性与性能。\n第二条要求。",
+    });
+    bridge.handlers.set("memory:list", () => ({
+      count: 0,
+      pendingCount: 0,
+      facts: [],
+      pending: [],
+    }));
+    bridge.handlers.set("employee:update", () => employee);
+    render(
+      <EmployeesPanel
+        boot={makeBootstrap({ employees: [employee] })}
+        onClose={() => undefined}
+        onChanged={noop}
+      />,
+    );
+
+    // 不展开也能认出这位员工是干什么的
+    expect(screen.getByText("你是资深后端工程师，只关注正确性与性能。")).toBeTruthy();
+
+    const box = screen.getByRole("textbox", { name: "职责 / 人设" }) as HTMLTextAreaElement;
+    expect(box.value).toContain("第二条要求。");
+
+    fireEvent.change(box, { target: { value: "只改这一行。" } });
+    expect(screen.getByText(/有未保存的改动/)).toBeTruthy();
+    fireEvent.click(screen.getByText("保存"));
+
+    await waitFor(() =>
+      expect(bridge.calls).toContainEqual({
+        channel: "employee:update",
+        payload: { id: employee.id, patch: { systemPrompt: "只改这一行。" } },
+      }),
+    );
+  });
+
+  it("没填人设的员工在卡上提示未填写，并给出填写入口", async () => {
+    const bridge = installBridge();
+    const employee = makeEmployee({ displayName: "小码" });
+    bridge.handlers.set("memory:list", () => ({
+      count: 0,
+      pendingCount: 0,
+      facts: [],
+      pending: [],
+    }));
+    render(
+      <EmployeesPanel
+        boot={makeBootstrap({ employees: [employee] })}
+        onClose={() => undefined}
+        onChanged={noop}
+      />,
+    );
+
+    expect(screen.getByText("（未填写，点开可填）")).toBeTruthy();
+  });
+
   it("删除后能在同一个面板里接着新建员工，界面不被原生弹窗卡死", async () => {
     const bridge = installBridge();
     const employee = makeEmployee({ displayName: "小码" });

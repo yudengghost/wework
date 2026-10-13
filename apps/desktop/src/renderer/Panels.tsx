@@ -325,6 +325,11 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
               {employee.canHire && <span className="tag ok">可招人</span>}
               {employee.sessionRef && <span className="sub">有进行中的会话</span>}
             </div>
+            <EmployeeRole
+              employee={employee}
+              onError={setError}
+              onChanged={onChanged}
+            />
             <details className="emp-details">
               <summary>工作目录、技能与记忆管理</summary>
               <div className="sub mono">{employee.workspaceDir}</div>
@@ -594,6 +599,88 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
         {error && <div className="error">{error}</div>}
       </div>
     </div>
+  );
+}
+
+/**
+ * 员工职责 / 人设：既能看，也能改。
+ *
+ * 之前只有在「新建员工」表单里能写人设，建完之后卡片上没有任何入口——
+ * 员工到底是按什么职责在干活，用户无从查看，更改不了。这里给一个入口，
+ * 顺带支持编辑：改完下一次运行就生效（人设是每次运行现组装的，不需要重启）。
+ */
+function EmployeeRole({
+  employee,
+  onChanged,
+  onError,
+}: {
+  employee: Employee;
+  onChanged: () => Promise<void> | void;
+  onError: (message: string) => void;
+}) {
+  const stored = employee.systemPrompt ?? "";
+  const [text, setText] = useState(stored);
+  const [saving, setSaving] = useState(false);
+
+  // 保存成功或别处改了之后，以服务端那份为准。
+  useEffect(() => {
+    setText(stored);
+  }, [stored]);
+
+  const dirty = text !== stored;
+  const preview = stored.trim().split("\n")[0]?.trim() ?? "";
+
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    try {
+      await api.updateEmployee(employee.id, { systemPrompt: text });
+      await onChanged();
+    } catch (cause) {
+      onError(String(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <details className="emp-details">
+      <summary>
+        职责 / 人设
+        {stored === "" ? (
+          <span className="sub" style={{ marginLeft: 6 }}>
+            （未填写，点开可填）
+          </span>
+        ) : (
+          <span className="role-preview" title={preview}>
+            {preview}
+          </span>
+        )}
+      </summary>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <textarea
+          className="role-text"
+          aria-label="职责 / 人设"
+          value={text}
+          placeholder="例如：你是资深后端工程师，只关注正确性与性能。"
+          onChange={(event) => setText(event.target.value)}
+        />
+        <div className="role-actions">
+          <span className="sub">
+            {text.length} 字 · 修改后从它下一次干活开始生效
+            {dirty ? " · 有未保存的改动" : ""}
+          </span>
+          <div className="spacer" />
+          {dirty && (
+            <button onClick={() => setText(stored)} disabled={saving}>
+              放弃改动
+            </button>
+          )}
+          <button className="primary" onClick={() => void save()} disabled={!dirty || saving}>
+            {saving ? "保存中…" : "保存"}
+          </button>
+        </div>
+      </div>
+    </details>
   );
 }
 

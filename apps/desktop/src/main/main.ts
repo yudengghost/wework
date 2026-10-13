@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { BrowserWindow, app } from "electron";
+import { BrowserWindow, app, shell } from "electron";
 
 import { registerIpc } from "./ipc";
 import { createServices } from "./services";
@@ -45,6 +45,23 @@ async function createWindow(): Promise<void> {
 
   await window.loadFile(join(__dirname, "..", "renderer", "index.html"));
   trace("window: html loaded");
+
+  /**
+   * 消息里的链接交给系统浏览器：应用窗口本身不允许被导航走。
+   *
+   * 没有这两道拦截时，点一下员工回复里的链接，整个界面就变成那个网页了——
+   * 用户等于把应用弄丢，而且从此跑在一个来路不明的页面上。
+   */
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  window.webContents.on("will-navigate", (event, url) => {
+    if (!/^https?:/i.test(url)) return;
+    event.preventDefault();
+    void shell.openExternal(url);
+  });
+
   window.on("closed", () => {
     window = null;
   });

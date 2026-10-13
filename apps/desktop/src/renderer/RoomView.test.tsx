@@ -432,6 +432,51 @@ describe("RoomView 消息列表", () => {
 });
 
 describe("RoomView 运行条与轨迹", () => {
+  it("员工的回复按 Markdown 渲染，自己发的内容保持原样", () => {
+    installBridge();
+    const employee = makeEmployee({ displayName: "小码" });
+    const room = makeRoom({ memberIds: [employee.id] });
+    const restoreViewport = stubLayout(600);
+    try {
+      const { container } = render(
+        <RoomView
+          room={room}
+          employees={[employee]}
+          messages={[
+            makeMessage({ roomId: room.id, body: "帮我写份进展\n- 顺便列个清单" }),
+            makeMessage({
+              roomId: room.id,
+              sender: { kind: "employee", employeeId: employee.id },
+              body: "## 进展\n\n- 接口**已完成**\n- 前端 70%\n\n```sh\nnpm test\n```",
+            }),
+          ]}
+          runs={[]}
+          nowMs={NOW}
+          onStopRun={() => undefined}
+          approvals={[]}
+          onSend={async () => undefined}
+          onResolveApproval={() => undefined}
+          onAddMember={async () => undefined}
+          onRemoveMember={async () => undefined}
+          onDeleteRoom={() => undefined}
+        />,
+      );
+
+      // 员工的回复：标题成了真标题，粗体成了真粗体，代码块有了结构
+      expect(container.querySelector(".md h2")?.textContent).toBe("进展");
+      expect(container.querySelector(".md strong")?.textContent).toBe("已完成");
+      expect(container.querySelector(".md .md-code code")?.textContent).toBe("npm test");
+      expect(container.querySelectorAll(".md li")).toHaveLength(2);
+
+      // 自己发的内容不渲染 Markdown：写什么就显示什么
+      expect(container.querySelectorAll(".md")).toHaveLength(1);
+      const mine = container.querySelector(".msg-row.mine .bubble")?.textContent ?? "";
+      expect(mine).toContain("帮我写份进展\n- 顺便列个清单");
+    } finally {
+      restoreViewport();
+    }
+  });
+
   it("说清当前动作，能停止这一次运行，也能展开逐步轨迹", () => {
     installBridge();
     const employee = makeEmployee({ displayName: "小码" });

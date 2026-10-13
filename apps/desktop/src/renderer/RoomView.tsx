@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent } from "./api";
+import { Markdown } from "./markdown";
 import {
   QUIET_HINT_MS,
   clockOf,
@@ -146,6 +147,8 @@ const ActivityRow = memo(function ActivityRow({
 
 interface MessageRowProps {
   mine: boolean;
+  /** 员工的回复按 Markdown 渲染；自己输入的内容保持所见即所得。 */
+  markdown?: boolean;
   who: string;
   seed: string;
   createdAt: string;
@@ -285,6 +288,7 @@ function RunPanel({
  */
 const MessageRow = memo(function MessageRow({
   mine,
+  markdown,
   who,
   seed,
   createdAt,
@@ -302,8 +306,8 @@ const MessageRow = memo(function MessageRow({
           <span>{createdAt.slice(11, 16)}</span>
           {working && <span className="tag ok">工作中</span>}
         </div>
-        <div className="bubble">
-          {body}
+        <div className={markdown === true ? "bubble md-body" : "bubble"}>
+          {markdown === true ? <Markdown text={body} /> : body}
           {attachments.length > 0 && (
             <div className="bubble-files">
               {attachments.map((attachment) =>
@@ -647,6 +651,8 @@ export function RoomView(props: RoomViewProps) {
                 {message ? (
                   <MessageRow
                     mine={message.sender.kind === "human"}
+                    // 系统消息是应用自己写的说明文案，不是 Markdown，保持原样。
+                    markdown={message.sender.kind === "employee" && message.kind !== "system"}
                     who={
                       message.sender.kind === "human"
                         ? "你"
