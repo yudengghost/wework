@@ -1,4 +1,4 @@
-import { copyFile, mkdir, stat } from "node:fs/promises";
+import { copyFile, mkdir, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative } from "node:path";
 
 import type { Attachment } from "../domain/schema";
@@ -150,6 +150,8 @@ export class AttachmentStore {
     if (attachments.length === 0) return [];
     const directory = join(workspaceDir, "attachments", messageId);
     await mkdir(directory, { recursive: true });
+    // 附件副本是应用放进去的，同样不该出现在用户仓库的 git 状态里。
+    await writeFile(join(workspaceDir, "attachments", ".gitignore"), "*\n", "utf8");
 
     const staged: WorkspaceAttachment[] = [];
     for (const attachment of attachments) {

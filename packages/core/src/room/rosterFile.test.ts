@@ -52,6 +52,8 @@ describe("createRosterFileWriter", () => {
       inThisRoom: false,
     });
     expect(parsed.note).toContain("自动生成");
+    // 自我忽略：不污染员工工作目录所在的 git 仓库
+    expect(await readFile(join(root, ".buddy", ".gitignore"), "utf8")).toBe("*\n");
   });
 
   it("重复写入是覆盖刷新，不会堆积", async () => {

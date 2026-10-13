@@ -143,6 +143,8 @@ describe("AttachmentStore.stageIntoWorkspace", () => {
     expect(staged).toHaveLength(1);
     expect(staged[0]?.relativePath).toBe("attachments/msg_1/data.csv");
     expect(await readFile(staged[0]?.absolutePath ?? "", "utf8")).toBe("a,b\n1,2\n");
+    // 附件目录同样自我忽略
+    expect(await readFile(join(workspace, "attachments", ".gitignore"), "utf8")).toBe("*\n");
   });
 
   it("重复运行不会重复复制（幂等）", async () => {
