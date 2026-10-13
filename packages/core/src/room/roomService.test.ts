@@ -1122,26 +1122,106 @@ describe("RoomService", () => {
     expect(harness.hires).toEqual([]);
   });
 
-  it("申请数量封顶，超出后不再受理", async () => {
+  it("招人没有总量上限：连着招几次都受理", async () => {
     const harness = await makeHarness();
     const { roomId } = await seedTeam(harness);
-    await harness.config.update({ scheduler: { maxEmployeeCreationsPerRoom: 1 } });
     harness.setBehavior((request) =>
       request.prompt.includes("<hiring>")
         ? { text: hireBlock('{"displayName":"新招的测试","framework":"codex"}') }
         : { text: "好的" },
     );
-    const approvals: unknown[] = [];
+    const approvals: string[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload.approvalId));
+
+    for (let round = 0; round < 5; round += 1) {
+      await harness.service.submitHumanMessage(roomId, `@小码 招第 ${round + 1} 个人`);
+      await harness.service.waitForIdle();
+    }
+
+    // 以前每个房间只让招 3 个，第 4 次会被直接拦掉
+    expect(approvals).toHaveLength(5);
+    const transcript = await harness.service.listMessages(roomId);
+    expect(transcript.some((message) => message.body.includes("已达上限"))).toBe(false);
+  });
+
+  it("一次提交多份申请：全部受理，并带上批次信息", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({
+      text: [
+        "组建一个小团队：",
+        hireBlock('{"displayName":"小前","framework":"codex","permissionMode":"workspace-write"}'),
+        hireBlock('{"displayName":"小后","framework":"codex","permissionMode":"workspace-write"}'),
+        hireBlock('{"displayName":"小测","framework":"claude-code","permissionMode":"read-only"}'),
+      ].join("\n\n"),
+    }));
+    const approvals: {
+      approvalId: string;
+      targetId: string;
+      batchId?: string;
+      batchIndex?: number;
+      batchSize?: number;
+    }[] = [];
     harness.events.on("approval-requested", (payload) => approvals.push(payload));
 
-    await harness.service.submitHumanMessage(roomId, "@小码 招第一个人");
-    await harness.service.waitForIdle();
-    await harness.service.submitHumanMessage(roomId, "@小码 再招一个");
+    await harness.service.submitHumanMessage(roomId, "@小码 组个三人小队");
     await harness.service.waitForIdle();
 
-    expect(approvals).toHaveLength(1);
-    const transcript = await harness.service.listMessages(roomId);
-    expect(transcript.some((message) => message.body.includes("已达上限"))).toBe(true);
+    expect(approvals.map((item) => item.targetId)).toEqual(["小前", "小后", "小测"]);
+    // 同一批共用 batchId，界面才能把它们合成一次审核
+    expect(new Set(approvals.map((item) => item.batchId)).size).toBe(1);
+    expect(approvals.map((item) => item.batchIndex)).toEqual([1, 2, 3]);
+    expect(approvals.every((item) => item.batchSize === 3)).toBe(true);
+    // 还没批准，一个人都不该建出来
+    expect(harness.employees.list().map((item) => item.displayName)).not.toContain("小前");
+  });
+
+  it("批量审核：一次批准整批，三个人都建出来并进房间", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({
+      text: [
+        hireBlock('{"displayName":"小前","framework":"codex","permissionMode":"workspace-write"}'),
+        hireBlock('{"displayName":"小后","framework":"codex","permissionMode":"workspace-write"}'),
+        hireBlock('{"displayName":"小测","framework":"claude-code","permissionMode":"read-only"}'),
+      ].join("\n\n"),
+    }));
+    const approvals: string[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload.approvalId));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 组个三人小队");
+    await harness.service.waitForIdle();
+    expect(await harness.service.resolveApprovals(approvals, true)).toBe(3);
+    await harness.service.waitForIdle();
+
+    const names = harness.employees.list().map((item) => item.displayName);
+    for (const hired of ["小前", "小后", "小测"]) expect(names).toContain(hired);
+    const members = harness.rooms.get(roomId)?.memberIds ?? [];
+    for (const hired of ["小前", "小后", "小测"]) {
+      expect(members).toContain(harness.employees.getByName(hired)?.id);
+    }
+    // 已经处理掉的审批不能重复生效
+    expect(await harness.service.resolveApprovals(approvals, true)).toBe(0);
+  });
+
+  it("批量拒绝：整批都不建人", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({
+      text: [
+        hireBlock('{"displayName":"小前","framework":"codex"}'),
+        hireBlock('{"displayName":"小后","framework":"codex"}'),
+      ].join("\n\n"),
+    }));
+    const approvals: string[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload.approvalId));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招两个人");
+    await harness.service.waitForIdle();
+    expect(await harness.service.resolveApprovals(approvals, false)).toBe(2);
+    await harness.service.waitForIdle();
+
+    expect(harness.hires).toEqual([]);
   });
 
   it("格式写错时明确报错，且不产生审批", async () => {

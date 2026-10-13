@@ -57,6 +57,24 @@ describe("ConfigStore.load", () => {
 
     await expect(makeStore().load()).rejects.toBeInstanceOf(DataParseError);
   });
+
+  it("老配置里已经删掉的字段不会让应用起不来", async () => {
+    // 这两项都曾经存在：maxEmployeeCreationsPerRoom 是后来的招人上限（已按需求去掉），
+    // maxTotalRunsPerRoom 更早。用户文件里留着这些键时必须照常加载——
+    // 删掉一个配置项不能让别人的应用直接打不开。
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        scheduler: { maxEmployeeCreationsPerRoom: 3, maxTotalRunsPerRoom: 50 },
+      }),
+      "utf8",
+    );
+
+    const config = await makeStore().load();
+
+    expect(config.scheduler.maxConcurrentRuns).toBe(3);
+    expect("maxEmployeeCreationsPerRoom" in config.scheduler).toBe(false);
+  });
 });
 
 describe("ConfigStore.get / update", () => {

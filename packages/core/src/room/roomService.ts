@@ -50,6 +50,13 @@ export interface RoomServiceEvents extends Record<string, unknown> {
     /** run = 员工之间的投递；hire = 招人申请。 */
     kind?: "run" | "hire";
     draft?: EmployeeDraft;
+    /**
+     * 同一条回复里提交的多份申请共用一个批次 id：界面据此把它们合成一次审核。
+     * 单份申请也带，只是批次大小为 1。
+     */
+    batchId?: string;
+    batchIndex?: number;
+    batchSize?: number;
     /** 申请里这些技能 id 在技能目录里不存在（批准也不会生效）。 */
     skillsUnknown?: string[];
   };
@@ -152,8 +159,6 @@ export class RoomService {
   private readonly activeRuns = new Map<string, AbortController>();
   private readonly recentTriggers = new Map<string, number>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
-  /** 每个房间已受理的招人申请数，防止一个员工无限招人。 */
-  private readonly hireCounts = new Map<string, number>();
   /** 已经提醒过记忆读不出来的员工，避免坏文件把房间刷屏。 */
   private readonly memoryWarningSent = new Set<string>();
   private readonly traces: RunTraceStore;
@@ -241,6 +246,21 @@ export class RoomService {
       this.kickDrain();
     }
     return true;
+  }
+
+  /**
+   * 一次审核一批申请。
+   *
+   * 批量招人时用户面对的是同一件事的若干份申请，逐个点「允许」只是重复劳动；
+   * 内部仍然逐条走 resolveApproval，所以每条都过同一套刹车，不因为"批量"而变成后门。
+   * 返回真正处理掉的条数。
+   */
+  async resolveApprovals(approvalIds: string[], approved: boolean): Promise<number> {
+    let resolved = 0;
+    for (const approvalId of approvalIds) {
+      if (await this.resolveApproval(approvalId, approved)) resolved += 1;
+    }
+    return resolved;
   }
 
   /** 一键停止：清空队列并中止所有在跑的 run。 */
@@ -596,7 +616,7 @@ export class RoomService {
     employee: Employee,
     hire: { drafts: EmployeeDraft[]; errors: string[] },
   ): Promise<void> {
-    const { policy, scheduler } = this.deps.config.get();
+    const { policy } = this.deps.config.get();
     // 没被授权的员工即使自己写出了协议块也不受理（提示词之外的第二道门）。
     if (!this.deps.createEmployee || policy.employeeMayHire === "off" || !employee.canHire) {
       return;
@@ -607,53 +627,55 @@ export class RoomService {
     }
     if (hire.drafts.length === 0) return;
 
-    const used = this.hireCounts.get(room.id) ?? 0;
-    if (used >= scheduler.maxEmployeeCreationsPerRoom) {
+    // 一次提交多份就全部受理：批量招人是常态（组建一个小团队），
+    // 逐条催用户再提一遍纯属折磨。真正的闸门是「必须由用户批准」，不是数量。
+    const batchId = createId("batch");
+    const batchSize = hire.drafts.length;
+    if (batchSize > 1) {
       await this.appendSystemMessage(
         room.id,
-        `本房间的招人申请已达上限（${scheduler.maxEmployeeCreationsPerRoom} 条），${employee.displayName} 这次申请未被受理。`,
-      );
-      return;
-    }
-    if (hire.drafts.length > 1) {
-      await this.appendSystemMessage(
-        room.id,
-        `${employee.displayName} 一次提交了 ${hire.drafts.length} 条招人申请，只受理第一条。`,
-      );
-    }
-
-    const draft = hire.drafts[0] as EmployeeDraft;
-    this.hireCounts.set(room.id, used + 1);
-    const skillsUnknown = await this.unknownSkills(draft.skills ?? []);
-    if (skillsUnknown.length > 0) {
-      await this.appendSystemMessage(
-        room.id,
-        render(this.prompts.employeeSkillsUnknown, { list: skillsUnknown.join("、") }),
+        render(this.prompts.employeeRequestBatch, {
+          employee: employee.displayName,
+          count: batchSize,
+        }),
       );
     }
 
-    const approvalId = createId("appr");
-    const summary = `招人申请：${draft.displayName}（${draft.framework}${
-      draft.permissionMode ? ` · ${draft.permissionMode}` : ""
-    }）`;
-    this.pendingApprovals.set(approvalId, {
-      kind: "hire",
-      targetId: draft.displayName,
-      roomId: room.id,
-      summary,
-      requesterId: employee.id,
-      draft,
-    });
-    this.events.emit("approval-requested", {
-      approvalId,
-      roomId: room.id,
-      employeeId: employee.id,
-      targetId: draft.displayName,
-      summary,
-      kind: "hire",
-      draft,
-      ...(skillsUnknown.length === 0 ? {} : { skillsUnknown }),
-    });
+    for (const [index, draft] of hire.drafts.entries()) {
+      const skillsUnknown = await this.unknownSkills(draft.skills ?? []);
+      if (skillsUnknown.length > 0) {
+        await this.appendSystemMessage(
+          room.id,
+          render(this.prompts.employeeSkillsUnknown, { list: skillsUnknown.join("、") }),
+        );
+      }
+
+      const approvalId = createId("appr");
+      const summary = `招人申请：${draft.displayName}（${draft.framework}${
+        draft.permissionMode ? ` · ${draft.permissionMode}` : ""
+      }）`;
+      this.pendingApprovals.set(approvalId, {
+        kind: "hire",
+        targetId: draft.displayName,
+        roomId: room.id,
+        summary,
+        requesterId: employee.id,
+        draft,
+      });
+      this.events.emit("approval-requested", {
+        approvalId,
+        roomId: room.id,
+        employeeId: employee.id,
+        targetId: draft.displayName,
+        summary,
+        kind: "hire",
+        draft,
+        batchId,
+        batchIndex: index + 1,
+        batchSize,
+        ...(skillsUnknown.length === 0 ? {} : { skillsUnknown }),
+      });
+    }
   }
 
   private kickDrain(): void {

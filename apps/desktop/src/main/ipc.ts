@@ -283,4 +283,12 @@ export function registerIpc(
     "approval:resolve",
     ({ approvalId, approved }) => service.resolveApproval(approvalId, approved),
   );
+
+  /** 一次审核一批（批量招人）：逐条走同一条路径，返回真正处理掉的条数。 */
+  handle<{ approvalIds: string[]; approved: boolean }, { resolved: number }>(
+    "approval:resolveAll",
+    async ({ approvalIds, approved }) => ({
+      resolved: await service.resolveApprovals(approvalIds, approved),
+    }),
+  );
 }

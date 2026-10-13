@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent } from "./api";
+import { groupApprovals, type ApprovalGroup } from "./approvals";
 import { Markdown } from "./markdown";
 import {
   QUIET_HINT_MS,
@@ -81,6 +82,11 @@ interface RoomViewProps {
   approvals: ApprovalEvent[];
   onSend: (body: string, files: PendingFile[]) => Promise<void>;
   onResolveApproval: (approvalId: string, approved: boolean) => void;
+  /**
+   * 一次审核一批（批量招人时用）：逐个点太累，但每条仍走同一套刹车。
+   * 没提供时就逐条走 onResolveApproval，行为一致、只是多几次往返。
+   */
+  onResolveApprovals?: (approvalIds: string[], approved: boolean) => void;
   onAddMember: (employeeId: string) => Promise<void>;
   onRemoveMember: (employeeId: string) => Promise<void>;
   onDeleteRoom: () => void;
@@ -155,6 +161,137 @@ interface MessageRowProps {
   body: string;
   attachments: Message["attachments"];
   working: boolean;
+}
+
+interface ApprovalCardProps {
+  group: ApprovalGroup;
+  nameOf: (employeeId: string) => string;
+  onResolve: (approvalId: string, approved: boolean) => void;
+  onResolveMany: (approvalIds: string[], approved: boolean) => void;
+}
+
+/**
+ * 一次审核一张卡。
+ *
+ * 招人申请的正文（HR 写的完整人设）动辄几百上千字，以前是一整段直接铺在
+ * 会话下游，把回复内容挤得看不见了。现在默认只给紧凑的一行：谁、什么框架、
+ * 什么权限、几个技能；完整人设收进可展开的框里，并且限高滚动。
+ * 多条待审核时整个区域限高，不再无限侵占会话区。
+ */
+function ApprovalCard({ group, nameOf, onResolve, onResolveMany }: ApprovalCardProps) {
+  const ids = group.items.map((item) => item.approvalId);
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  if (group.kind === "run") {
+    const approval = group.items[0];
+    if (!approval) return null;
+    return (
+      <div className="approval">
+        <AlertIcon size={16} />
+        <div className="grow">
+          <div className="approval-title">
+            <strong>{nameOf(approval.targetId)}</strong> 被 @ 了，需要你确认才继续
+          </div>
+          <div className="why" title={approval.summary}>
+            {approval.summary}
+          </div>
+        </div>
+        <button className="primary" onClick={() => onResolve(approval.approvalId, true)}>
+          允许
+        </button>
+        <button onClick={() => onResolve(approval.approvalId, false)}>拒绝</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="approval">
+      <AlertIcon size={16} />
+      <div className="grow">
+        <div className="approval-title">
+          <strong>{nameOf(group.requesterId)}</strong> 申请招
+          {group.items.length === 1 ? "人" : ` ${group.items.length} 位员工`}
+        </div>
+        <div className="approval-list">
+          {group.items.map((approval) => {
+            const draft = approval.draft;
+            const open = openId === approval.approvalId;
+            const missing = approval.skillsUnknown ?? [];
+            return (
+              <div key={approval.approvalId} className="approval-item">
+                <button
+                  className="approval-item-head"
+                  aria-expanded={open}
+                  onClick={() => setOpenId(open ? null : approval.approvalId)}
+                >
+                  <span className={open ? "chevron open" : "chevron"} />
+                  <span className="approval-name">{approval.targetId}</span>
+                  <span className="sub">
+                    {draft?.framework}
+                    {draft?.permissionMode ? ` · ${draft.permissionMode}` : ""}
+                    {draft?.model ? ` · ${draft.model}` : ""}
+                  </span>
+                  {(draft?.skills?.length ?? 0) > 0 && (
+                    <span className="sub">技能 {draft?.skills?.length}</span>
+                  )}
+                  {missing.length > 0 && <span className="tag bad">技能缺失</span>}
+                  {(draft?.installSkills?.length ?? 0) > 0 && (
+                    <span className="tag">要装 {draft?.installSkills?.length} 个技能</span>
+                  )}
+                </button>
+                {open && (
+                  <div className="approval-detail">
+                    {draft?.systemPrompt && (
+                      <>
+                        <div className="approval-label">拟任职责</div>
+                        <div className="approval-role">{draft.systemPrompt}</div>
+                      </>
+                    )}
+                    {(draft?.skills?.length ?? 0) > 0 && (
+                      <div className="hire-meta">
+                        {(draft?.skills ?? []).map((skill) => (
+                          <span
+                            key={skill}
+                            className={missing.includes(skill) ? "tag bad" : "tag"}
+                          >
+                            {missing.includes(skill) ? `技能缺失 ${skill}` : `技能 ${skill}`}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {(draft?.installSkills?.length ?? 0) > 0 && (
+                      <div className="why">
+                        要安装的技能：{draft?.installSkills?.join("、")}
+                        （批准后由应用装进技能目录，并给新同事启用）
+                      </div>
+                    )}
+                    {draft?.workspaceDir && (
+                      <div className="why">拟用工作目录：{draft.workspaceDir}</div>
+                    )}
+                  </div>
+                )}
+                {/* 只有一条时下面那对按钮就够了；多条时每条要能单独拍板。 */}
+                {group.items.length > 1 && (
+                  <div className="approval-item-actions">
+                    <button onClick={() => onResolve(approval.approvalId, true)}>批准</button>
+                    <button onClick={() => onResolve(approval.approvalId, false)}>拒绝</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="approval-batch-actions">
+        <button className="primary" onClick={() => onResolveMany(ids, true)}>
+          {group.items.length > 1 ? "全部批准" : "批准招人"}
+        </button>
+        <button onClick={() => onResolveMany(ids, false)}>
+          {group.items.length > 1 ? "全部拒绝" : "拒绝"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 interface RunPanelProps {
@@ -354,6 +491,11 @@ export function RoomView(props: RoomViewProps) {
     .slice()
     .sort((left, right) => left.queuedAt.localeCompare(right.queuedAt));
   const recentRuns = roomRuns.filter((trace) => !isActive(trace));
+  const approvalGroups = groupApprovals(approvals);
+  const resolveMany =
+    props.onResolveApprovals ??
+    ((ids: string[], approved: boolean) =>
+      ids.forEach((id) => props.onResolveApproval(id, approved)));
 
   /**
    * 有新消息或流式增量时滚到底部，但只在用户本来就贴着底部时才滚——
@@ -684,57 +826,19 @@ export function RoomView(props: RoomViewProps) {
         </div>
       </div>
 
-      {approvals.map((approval) => (
-        <div key={approval.approvalId} className="approval">
-          <AlertIcon size={17} />
-          <div className="grow">
-            {approval.kind === "hire" ? (
-              <>
-                <strong>{nameOf(approval.employeeId)}</strong> 申请招人：
-                <strong>{approval.targetId}</strong>
-              </>
-            ) : (
-              <>
-                <strong>{nameOf(approval.targetId)}</strong> 被 @ 了，需要你确认才继续
-              </>
-            )}
-            <div className="why">{approval.summary}</div>
-            {/* 招人申请里真正决定「招来的人能不能干活」的是模型与技能，单独摆出来给审批的人看。 */}
-            {approval.kind === "hire" &&
-              (approval.draft?.model || (approval.draft?.skills?.length ?? 0) > 0) && (
-                <div className="hire-meta">
-                  {approval.draft?.model && (
-                    <span className="tag">模型 {approval.draft.model}</span>
-                  )}
-                  {(approval.draft?.skills ?? []).map((skill) => {
-                    const missing = (approval.skillsUnknown ?? []).includes(skill);
-                    return (
-                      <span key={skill} className={missing ? "tag bad" : "tag"}>
-                        {missing ? `技能缺失 ${skill}` : `技能 ${skill}`}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            {approval.kind === "hire" && approval.draft?.systemPrompt && (
-              <div className="why">拟任职责：{approval.draft.systemPrompt}</div>
-            )}
-            {approval.kind === "hire" && (approval.draft?.installSkills?.length ?? 0) > 0 && (
-              <div className="why">
-                要安装的技能：{approval.draft?.installSkills?.join("、")}
-                （批准后由应用装进技能目录，并给新同事启用）
-              </div>
-            )}
-            {approval.kind === "hire" && approval.draft?.workspaceDir && (
-              <div className="why">拟用工作目录：{approval.draft.workspaceDir}</div>
-            )}
-          </div>
-          <button className="primary" onClick={() => props.onResolveApproval(approval.approvalId, true)}>
-            {approval.kind === "hire" ? "批准招人" : "允许"}
-          </button>
-          <button onClick={() => props.onResolveApproval(approval.approvalId, false)}>拒绝</button>
+      {approvalGroups.length > 0 && (
+        <div className="approvals">
+          {approvalGroups.map((group) => (
+            <ApprovalCard
+              key={group.key}
+              group={group}
+              nameOf={nameOf}
+              onResolve={props.onResolveApproval}
+              onResolveMany={resolveMany}
+            />
+          ))}
         </div>
-      ))}
+      )}
 
       <RunPanel
         active={activeRuns}

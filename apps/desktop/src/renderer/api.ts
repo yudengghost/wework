@@ -62,6 +62,10 @@ export interface ApprovalEvent {
   summary: string;
   /** run = 员工之间的投递；hire = 招人申请。 */
   kind?: "run" | "hire";
+  /** 同一条回复里提交的多份申请共用一个批次 id：界面据此合成一次审核。 */
+  batchId?: string;
+  batchIndex?: number;
+  batchSize?: number;
   draft?: {
     displayName: string;
     framework: string;
@@ -140,6 +144,12 @@ export const api = {
   stopRun: (runId: string) => window.wework.invoke<{ stopped: boolean }>("run:stop", { runId }),
   resolveApproval: (approvalId: string, approved: boolean) =>
     window.wework.invoke<boolean>("approval:resolve", { approvalId, approved }),
+  /** 一次审核一批申请（批量招人）。 */
+  resolveApprovals: (approvalIds: string[], approved: boolean) =>
+    window.wework.invoke<{ resolved: number }>("approval:resolveAll", {
+      approvalIds,
+      approved,
+    }),
   skillsCatalog: () => window.wework.invoke<SkillInfo[]>("skills:catalog"),
   memoryList: (employeeId: string) =>
     window.wework.invoke<MemorySnapshot>("memory:list", { employeeId }),

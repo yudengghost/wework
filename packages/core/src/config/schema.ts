@@ -16,8 +16,6 @@ export const schedulerSettingsSchema = z.object({
   wallClockBudgetMs: z.number().int().positive().default(600000),
   /** 上下文条数上限：冷启动时作为起步窗口，之后作为增量的封顶。 */
   contextWindowMessages: z.number().int().positive().default(50),
-  /** 每个房间最多批准创建多少名员工，防止一个员工无限招人。 */
-  maxEmployeeCreationsPerRoom: z.number().int().nonnegative().default(3),
 });
 export type SchedulerSettings = z.infer<typeof schedulerSettingsSchema>;
 

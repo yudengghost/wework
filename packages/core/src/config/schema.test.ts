@@ -17,7 +17,6 @@ describe("defaultConfig", () => {
         dedupeWindowMs: 5000,
         wallClockBudgetMs: 600000,
         contextWindowMessages: 50,
-        maxEmployeeCreationsPerRoom: 3,
       },
       policy: {
         employeeMentionsEmployee: "auto",

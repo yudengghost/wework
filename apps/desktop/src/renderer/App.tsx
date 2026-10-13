@@ -227,6 +227,18 @@ export function App() {
     if (approved) await reload();
   };
 
+  /** 一次审核一批：逐个点对用户是重复劳动，但每条仍走同一条放行路径。 */
+  const resolveApprovals = (approvalIds: string[], approved: boolean) => {
+    void api
+      .resolveApprovals(approvalIds, approved)
+      .then(async () => {
+        const done = new Set(approvalIds);
+        setApprovals((prev) => prev.filter((item) => !done.has(item.approvalId)));
+        if (approved) await reload();
+      })
+      .catch((cause: unknown) => setError(String(cause)));
+  };
+
   const selectedRoom = boot?.rooms.find((room) => room.id === selectedRoomId) ?? null;
   const directRooms = boot?.rooms.filter((room) => room.kind === "direct") ?? [];
   const groupRooms = boot?.rooms.filter((room) => room.kind !== "direct") ?? [];
@@ -405,6 +417,7 @@ export function App() {
               await api.send(selectedRoom.id, body, files);
             }}
             onResolveApproval={(id, approved) => void resolveApproval(id, approved)}
+            onResolveApprovals={resolveApprovals}
             onAddMember={async (employeeId) => {
               await api.setRoomMember(selectedRoom.id, employeeId, true);
               await reload();

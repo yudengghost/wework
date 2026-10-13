@@ -110,6 +110,112 @@ describe("RoomView 发送消息", () => {
 });
 
 describe("RoomView 审批与 @ 补全", () => {
+  it("一批招人申请合成一次审核：能逐个展开看人设，也能整批批准", () => {
+    installBridge();
+    const hr = makeEmployee({ displayName: "HR主管" });
+    const room = makeRoom({ memberIds: [hr.id] });
+    const hire = (index: number, name: string, role: string): ApprovalEvent => ({
+      approvalId: `appr_${index}`,
+      roomId: room.id,
+      employeeId: hr.id,
+      targetId: name,
+      summary: `招人申请：${name}（codex）`,
+      kind: "hire",
+      batchId: "batch_1",
+      batchIndex: index,
+      batchSize: 2,
+      draft: { displayName: name, framework: "codex", permissionMode: "workspace-write", systemPrompt: role },
+    });
+    const onResolveApprovals = vi.fn();
+    render(
+      <RoomView
+        room={room}
+        employees={[hr]}
+        messages={[]}
+        runs={[]}
+        nowMs={NOW}
+        onStopRun={() => undefined}
+        approvals={[
+          hire(1, "小前", "你负责前端页面与交互。".repeat(20)),
+          hire(2, "小后", "你负责后端接口与数据。".repeat(20)),
+        ]}
+        onSend={async () => undefined}
+        onResolveApproval={() => undefined}
+        onResolveApprovals={onResolveApprovals}
+        onAddMember={async () => undefined}
+        onRemoveMember={async () => undefined}
+        onDeleteRoom={() => undefined}
+      />,
+    );
+
+    // 一次审核一张卡，标题说清是几位候选人；两张卡不再各占一大块
+    expect(screen.getByText(/申请招 2 位员工/)).toBeTruthy();
+    expect(screen.getByText("小前")).toBeTruthy();
+    expect(screen.getByText("小后")).toBeTruthy();
+    // 人设默认收起：不展开就看不到那几百字
+    expect(screen.queryByText(/你负责前端页面与交互。/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /小前/ }));
+    expect(screen.getByText(/你负责前端页面与交互。/)).toBeTruthy();
+    expect(screen.queryByText(/你负责后端接口与数据。/)).toBeNull();
+
+    fireEvent.click(screen.getByText("全部批准"));
+    expect(onResolveApprovals).toHaveBeenCalledWith(["appr_1", "appr_2"], true);
+  });
+
+  it("一批里可以只批一个：每条都有单独的批准/拒绝", () => {
+    installBridge();
+    const hr = makeEmployee({ displayName: "HR主管" });
+    const room = makeRoom({ memberIds: [hr.id] });
+    const onResolveApproval = vi.fn();
+    render(
+      <RoomView
+        room={room}
+        employees={[hr]}
+        messages={[]}
+        runs={[]}
+        nowMs={NOW}
+        onStopRun={() => undefined}
+        approvals={[
+          {
+            approvalId: "appr_1",
+            roomId: room.id,
+            employeeId: hr.id,
+            targetId: "小前",
+            summary: "招人申请：小前（codex）",
+            kind: "hire",
+            batchId: "batch_1",
+            batchSize: 2,
+            draft: { displayName: "小前", framework: "codex" },
+          },
+          {
+            approvalId: "appr_2",
+            roomId: room.id,
+            employeeId: hr.id,
+            targetId: "小后",
+            summary: "招人申请：小后（codex）",
+            kind: "hire",
+            batchId: "batch_1",
+            batchSize: 2,
+            draft: { displayName: "小后", framework: "codex" },
+          },
+        ]}
+        onSend={async () => undefined}
+        onResolveApproval={onResolveApproval}
+        onAddMember={async () => undefined}
+        onRemoveMember={async () => undefined}
+        onDeleteRoom={() => undefined}
+      />,
+    );
+
+    const rows = [...document.querySelectorAll(".approval-item")];
+    const firstApprove = [...(rows[0]?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "批准",
+    );
+    fireEvent.click(firstApprove as HTMLElement);
+    expect(onResolveApproval).toHaveBeenCalledWith("appr_1", true);
+  });
+
   it("招人审批卡片把申请里的工作目录显示出来", () => {
     installBridge();
     const employee = makeEmployee({ displayName: "小码" });
@@ -129,6 +235,10 @@ describe("RoomView 审批与 @ 补全", () => {
     };
     renderRoom(room, { employees: [employee], approvals: [approval] });
 
+    // 默认只给一行摘要：完整信息（人设 / 工作目录）收在展开里，
+    // 否则一条招人申请就把会话区的回复挤得看不见了。
+    expect(screen.queryByText(/拟用工作目录/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /新人/ }));
     expect(screen.getByText(/拟用工作目录：E:\\somewhere\\项目/)).toBeTruthy();
   });
 
@@ -153,7 +263,9 @@ describe("RoomView 审批与 @ 补全", () => {
     };
     renderRoom(room, { employees: [employee], approvals: [approval] });
 
-    expect(screen.getByText("模型 gpt-5-codex")).toBeTruthy();
+    // 框架与模型在摘要行上；技能细节展开后才铺开
+    expect(screen.getByText(/codex · gpt-5-codex/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /文档专员/ }));
     expect(screen.getByText("技能 docx")).toBeTruthy();
     expect(screen.getByText("技能缺失 跑得快")).toBeTruthy();
   });
