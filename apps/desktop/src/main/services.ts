@@ -337,7 +337,9 @@ export async function createEmployeeFromDraft(
 
     const notes = [
       ...install.installed.map(
-        (id) => `已把新技能「${id}」装进技能目录，并给「${employee.displayName}」启用。`,
+        (id) =>
+          `已把新技能「${id}」装进技能目录，并给「${employee.displayName}」启用` +
+          "（工作目录里的下载副本已清理）。",
       ),
       ...install.reused.map(
         (id) => `技能「${id}」本机已经有了，直接沿用了现成的那份（没有覆盖）。`,

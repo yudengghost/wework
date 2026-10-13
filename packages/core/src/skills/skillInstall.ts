@@ -1,4 +1,4 @@
-import { cp, readFile, stat } from "node:fs/promises";
+import { cp, readFile, rm, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { readSkillFrontmatter } from "./skillCatalog";
@@ -36,6 +36,10 @@ async function exists(path: string): Promise<boolean> {
  *
  * 安全边界：只接受工作目录内的相对路径（挡掉绝对路径与 `..` 逃逸）；
  * 只搬走含 SKILL.md 的目录；技能 id 已存在时不覆盖，直接沿用现成的那份。
+ *
+ * 装完之后，工作目录里那份下载副本会被删掉：它只是搬运的中转站，
+ * 技能内容已经进了技能目录，留着白占空间。只在**真的拷贝成功之后**才删——
+ * 沿用现成那份（reused）与各种失败（failed）都不动别人的文件。
  */
 export async function installSkillsFromWorkspace(options: {
   dataDir: string;
@@ -55,6 +59,8 @@ export async function installSkillsFromWorkspace(options: {
   const root = resolve(requesterWorkspaceDir);
   const skillsDir = join(dataDir, "skills");
   const outcome: SkillInstallOutcome = { installed: [], reused: [], failed: [] };
+  /** 同一次申请里重复引用同一个目录时只处理一次（模型经常既写 id 又写两次路径）。 */
+  const handled = new Set<string>();
 
   for (const source of sources) {
     try {
@@ -64,6 +70,8 @@ export async function installSkillsFromWorkspace(options: {
       if (relativePath === "" || relativePath.startsWith("..") || isAbsolute(relativePath)) {
         throw new Error("路径跑到工作目录外面去了");
       }
+      if (handled.has(from)) continue;
+      handled.add(from);
 
       const id = basename(from);
       if (!skillIdPattern.test(id)) {
@@ -96,6 +104,10 @@ export async function installSkillsFromWorkspace(options: {
       });
       if (!(await exists(join(target, "SKILL.md")))) throw new Error("拷贝后没找到 SKILL.md");
       outcome.installed.push(id);
+
+      // 拷贝已经落定，中转站可以清了。删不掉不算安装失败：技能本身已经装好，
+      // 这里只是没省下那点空间。
+      await rm(from, { recursive: true, force: true }).catch(() => undefined);
     } catch (error) {
       outcome.failed.push({
         source,

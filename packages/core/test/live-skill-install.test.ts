@@ -191,6 +191,11 @@ describe.skipIf(!liveEnabled)("真机：HR 自己找技能并装给新同事", (
     // 同一份技能被 skills 与 installSkills 各写一次时，不该在档案里出现两遍
     expect(hired.filter((id) => id === skillId)).toHaveLength(1);
 
+    // 装完就把下载用的中转目录清掉：技能内容已经在技能目录里，留着白占空间
+    const leftover = join(hrWorkspace, installSource);
+    console.log(`[skill] 下载副本已清理=${!(await exists(leftover))}`);
+    expect(await exists(leftover)).toBe(false);
+
     const after = await messages.readAll(room.id);
     console.log(`[skill] 批准后回执=${JSON.stringify(after.map((item) => item.body).slice(-2))}`);
     expect(after.some((item) => item.body.includes("装进技能目录"))).toBe(true);

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,15 @@ import { installSkillsFromWorkspace } from "./skillInstall";
 let root: string;
 let dataDir: string;
 let workspace: string;
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "wework-skill-install-"));
@@ -52,6 +61,56 @@ describe("安装员工下载好的技能", () => {
       "csv-kit 的说明",
     );
     expect(await readFile(join(dataDir, "skills", "csv-kit", "helper.ps1"), "utf8")).toContain("脚本");
+  });
+
+  it("装成功之后，工作目录里的下载副本被清掉，不留两份", async () => {
+    const source = await download("csv-kit");
+    const downloaded = join(workspace, ".wework", "skills", "csv-kit");
+
+    await installSkillsFromWorkspace({
+      dataDir,
+      requesterWorkspaceDir: workspace,
+      sources: [source],
+    });
+
+    // 技能目录里有，工作目录里没了——中转站用完就清，避免长期占空间
+    expect(await exists(join(dataDir, "skills", "csv-kit", "SKILL.md"))).toBe(true);
+    expect(await exists(downloaded)).toBe(false);
+  });
+
+  it("没装成功的一次不删文件：沿用现成那份、缺 SKILL.md、路径非法都保持原样", async () => {
+    const reusedSource = await download("docx");
+    const existing = join(dataDir, "skills", "docx");
+    await mkdir(existing, { recursive: true });
+    await writeFile(join(existing, "SKILL.md"), "---\nname: 现成的\n---\n", "utf8");
+
+    await mkdir(join(workspace, ".wework", "skills", "half-baked"), { recursive: true });
+
+    const outcome = await installSkillsFromWorkspace({
+      dataDir,
+      requesterWorkspaceDir: workspace,
+      sources: [reusedSource, ".wework/skills/half-baked", "../outside"],
+    });
+
+    expect(outcome.reused).toEqual(["docx"]);
+    expect(outcome.failed).toHaveLength(2);
+    // 没有发生拷贝的三种情况都不该动用户的文件
+    expect(await exists(join(workspace, ".wework", "skills", "docx"))).toBe(true);
+    expect(await exists(join(workspace, ".wework", "skills", "half-baked"))).toBe(true);
+  });
+
+  it("同一次申请里重复引用同一个目录，只处理一次", async () => {
+    const source = await download("csv-kit");
+
+    const outcome = await installSkillsFromWorkspace({
+      dataDir,
+      requesterWorkspaceDir: workspace,
+      sources: [source, source, `${source}/`],
+    });
+
+    // 第一次就把它装好并删掉了；重复项不该变成「目录里没有 SKILL.md」这种假失败
+    expect(outcome.installed).toEqual(["csv-kit"]);
+    expect(outcome.failed).toEqual([]);
   });
 
   it("目录里没有 SKILL.md 时装不上，并说明原因", async () => {
