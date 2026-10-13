@@ -945,7 +945,7 @@ code {
 }
 
 .trace-item {
-  padding: 7px 0;
+  padding: 5px 0;
   border-top: 1px solid var(--line);
 }
 
@@ -953,12 +953,23 @@ code {
   border-top: 0;
 }
 
+/* 每条轨迹一条折：点标题行展开，箭头只做颜色与旋转反馈（沿用侧栏折叠的箭头）。 */
 .trace-head {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  padding: 2px 0;
   font-size: 12.5px;
   min-width: 0;
+  color: inherit;
+  background: transparent;
+  border: none;
+  text-align: left;
+}
+
+.trace-head:hover .trace-trigger {
+  color: var(--text-dim);
 }
 
 .trace-who {
@@ -973,6 +984,12 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.trace-count {
+  flex: none;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .trace-why {

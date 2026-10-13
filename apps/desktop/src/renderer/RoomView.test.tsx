@@ -483,6 +483,97 @@ describe("RoomView 运行条与轨迹", () => {
     expect(container.querySelector(".trace-trigger")?.textContent).toContain("帮我干活");
   });
 
+  it("每条轨迹（= 每条消息）各自折叠：在跑的默认展开，结束的默认收起", () => {
+    installBridge();
+    const employee = makeEmployee({ displayName: "小码" });
+    const room = makeRoom({ memberIds: [employee.id] });
+    const running = makeTrace({
+      runId: "run_live",
+      roomId: room.id,
+      employeeId: employee.id,
+      trigger: "这条还在跑",
+      steps: [{ at: "2026-10-13T10:00:04.000Z", kind: "started" }],
+    });
+    const finished = makeTrace({
+      runId: "run_old",
+      roomId: room.id,
+      employeeId: employee.id,
+      trigger: "这条已经干完了",
+      status: "done",
+      finishedAt: "2026-10-13T10:00:30.000Z",
+      steps: [
+        { at: "2026-10-13T10:00:04.000Z", kind: "started" },
+        { at: "2026-10-13T10:00:20.000Z", kind: "note", text: "收工" },
+      ],
+    });
+    const { container } = render(
+      <RoomView
+        room={room}
+        employees={[employee]}
+        messages={[]}
+        runs={[running, finished]}
+        nowMs={NOW}
+        onStopRun={() => undefined}
+        approvals={[]}
+        onSend={async () => undefined}
+        onResolveApproval={() => undefined}
+        onAddMember={async () => undefined}
+        onRemoveMember={async () => undefined}
+        onDeleteRoom={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByText(/运行轨迹/));
+    const items = [...container.querySelectorAll(".trace-item")];
+    expect(items).toHaveLength(2);
+
+    // 在跑的那条默认展开，结束的那条只剩一行摘要
+    expect(items[0]?.textContent).toContain("开始执行");
+    expect(items[1]?.textContent).not.toContain("收工");
+    expect(items[0]?.querySelector(".chevron")?.classList.contains("open")).toBe(true);
+    expect(items[1]?.querySelector(".chevron")?.classList.contains("open")).toBe(false);
+
+    // 点标题行单独展开历史那条，不影响另一条
+    fireEvent.click(items[1]?.querySelector(".trace-head") as HTMLElement);
+    const after = [...container.querySelectorAll(".trace-item")];
+    expect(after[1]?.textContent).toContain("收工");
+    expect(after[0]?.textContent).toContain("开始执行");
+    expect(after[1]?.textContent).toContain("2 步");
+  });
+
+  it("失败的轨迹即使收起也看得见原因", () => {
+    installBridge();
+    const employee = makeEmployee({ displayName: "小码" });
+    const room = makeRoom({ memberIds: [employee.id] });
+    const { container } = render(
+      <RoomView
+        room={room}
+        employees={[employee]}
+        messages={[]}
+        runs={[
+          makeTrace({
+            roomId: room.id,
+            employeeId: employee.id,
+            status: "failed",
+            finishedAt: "2026-10-13T10:00:30.000Z",
+            error: "401 Unauthorized",
+          }),
+        ]}
+        nowMs={NOW}
+        onStopRun={() => undefined}
+        approvals={[]}
+        onSend={async () => undefined}
+        onResolveApproval={() => undefined}
+        onAddMember={async () => undefined}
+        onRemoveMember={async () => undefined}
+        onDeleteRoom={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByText(/运行轨迹/));
+    expect(container.querySelector(".trace-why")?.textContent).toBe("401 Unauthorized");
+  });
+
   it("没有运行记录时整条运行条都不出现", () => {
     installBridge();
     const room = makeRoom({ memberIds: [] });

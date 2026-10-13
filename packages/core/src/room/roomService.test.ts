@@ -933,6 +933,59 @@ describe("RoomService", () => {
     expect(transcript.some((message) => message.body.includes("已通过"))).toBe(true);
   });
 
+  it("批准招人后新员工直接进本房间：招来的目的是让它在这里干活", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({
+      text: hireBlock('{"displayName":"新招的测试","framework":"codex","permissionMode":"read-only"}'),
+    }));
+    const approvals: string[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload.approvalId));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招人");
+    await harness.service.waitForIdle();
+    await harness.service.resolveApproval(approvals[0] as string, true);
+    await harness.service.waitForIdle();
+
+    const hired = harness.employees.getByName("新招的测试");
+    expect(harness.rooms.get(roomId)?.memberIds).toContain(hired?.id);
+    const transcript = await harness.service.listMessages(roomId);
+    expect(transcript.at(-1)?.body).toContain("并加入本房间");
+  });
+
+  it("单聊房间里批准招人不会把第二个人塞进去，只在文案里说清怎么用", async () => {
+    const harness = await makeHarness();
+    const coder = await harness.employees.create({
+      displayName: "小码",
+      framework: "codex",
+      canHire: true,
+      workspaceDir: join(workDir, "ws", "solo"),
+      stateDir: join(workDir, "state", "solo"),
+      permissions: { mode: "workspace-write" },
+      skills: [],
+    });
+    const room = await harness.rooms.create({
+      name: "小码",
+      kind: "direct",
+      memberIds: [coder.id],
+    });
+    harness.setBehavior(() => ({
+      text: hireBlock('{"displayName":"新招的测试","framework":"codex","permissionMode":"read-only"}'),
+    }));
+    const approvals: string[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload.approvalId));
+
+    await harness.service.submitHumanMessage(room.id, "帮我招个测试");
+    await harness.service.waitForIdle();
+    await harness.service.resolveApproval(approvals[0] as string, true);
+    await harness.service.waitForIdle();
+
+    // 单聊的语义就是「只有一名成员」，塞进第二个人会把它变成群聊
+    expect(harness.rooms.get(room.id)?.memberIds).toEqual([coder.id]);
+    const transcript = await harness.service.listMessages(room.id);
+    expect(transcript.at(-1)?.body).toContain("单聊");
+  });
+
   it("招人申请能带技能与模型：HR 看得到技能目录，批准后原样落到新员工档案", async () => {
     const harness = await makeHarness();
     const { roomId } = await seedTeam(harness);

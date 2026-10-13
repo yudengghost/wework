@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { App } from "./App";
@@ -28,7 +28,7 @@ describe("应用外壳", () => {
     bridge.handlers.set("app:bootstrap", () =>
       makeBootstrap({ employees: [makeEmployee({ displayName: "小码" })] }),
     );
-    render(<App />);
+    const { container } = render(<App />);
 
     await waitFor(() => expect(screen.getByText(/1 名员工/)).toBeTruthy());
   });
@@ -92,5 +92,39 @@ describe("应用外壳", () => {
 
     await waitFor(() => expect(screen.getByText(/运行失败/)).toBeTruthy());
     expect(screen.queryByText(/已被用户停止/)).toBeNull();
+  });
+
+  it("批准招人后立刻重取名册：新员工不用重启就出现在侧栏", async () => {
+    const bridge = installBridge();
+    const hr = makeEmployee({ displayName: "小码" });
+    const hired = makeEmployee({ displayName: "新招的测试" });
+    const room = makeRoom({ name: "发布前检查", memberIds: [hr.id] });
+    let boots = 0;
+    bridge.handlers.set("app:bootstrap", () => {
+      boots += 1;
+      // 第一次快照里还没有这位新同事，批准之后才会出现在名册里
+      return makeBootstrap({ employees: boots === 1 ? [hr] : [hr, hired], rooms: [room] });
+    });
+    bridge.handlers.set("approval:resolve", () => true);
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText(/1 名员工/)).toBeTruthy());
+    fireEvent.click(screen.getByText("发布前检查"));
+    await waitFor(() => expect(screen.getByText(/还没有消息/)).toBeTruthy());
+
+    bridge.emitApproval({
+      approvalId: "appr_1",
+      roomId: room.id,
+      employeeId: hr.id,
+      targetId: "新招的测试",
+      summary: "招人申请：新招的测试（codex）",
+      kind: "hire",
+    });
+    await waitFor(() => expect(screen.getByText("批准招人")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("批准招人"));
+
+    await waitFor(() => expect(screen.getByText(/2 名员工/)).toBeTruthy());
+    expect(screen.getByText("新招的测试")).toBeTruthy();
   });
 });

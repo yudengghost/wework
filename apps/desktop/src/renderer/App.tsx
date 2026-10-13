@@ -105,8 +105,7 @@ export function App() {
   /** 主进程是轨迹的唯一持有者，这里只负责把它取回来。 */
   const refreshRuns = useCallback(async () => {
     try {
-      const next = await api.runs();
-      setRuns(Array.isArray(next) ? next : []);
+      setRuns(await api.runs());
     } catch {
       // 轨迹取不到不该影响主流程：下一次运行事件会再试一遍。
     }
@@ -223,6 +222,9 @@ export function App() {
   const resolveApproval = async (approvalId: string, approved: boolean) => {
     await api.resolveApproval(approvalId, approved);
     setApprovals((prev) => prev.filter((item) => item.approvalId !== approvalId));
+    // 批准「招人申请」会在主进程里真的创建一名员工：不重取一次快照，
+    // 新员工在员工管理、房间成员、@ 补全里都是隐形的，用户只能重启才发现它。
+    if (approved) await reload();
   };
 
   const selectedRoom = boot?.rooms.find((room) => room.id === selectedRoomId) ?? null;

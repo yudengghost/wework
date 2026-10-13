@@ -2,7 +2,7 @@ import type { WeworkConfig, Employee, Message, Room, RunTrace } from "@wework/co
 import { defaultConfig } from "@wework/core";
 import { act } from "@testing-library/react";
 
-import type { Bootstrap, RunEvent } from "../api";
+import type { ApprovalEvent, Bootstrap, RunEvent } from "../api";
 
 // jsdom 没有 ResizeObserver，而虚拟列表用它观察视口与行高。给个最小替身就够了：
 // jsdom 本来也没有真实布局，行高会一直用估算值。
@@ -44,6 +44,7 @@ export interface FakeBridge {
   /** 回放一条主进程 → 渲染层的推送（运行事件 / 消息），用来验证界面反应。 */
   emitRun(event: RunEvent): void;
   emitMessage(message: Message): void;
+  emitApproval(approval: ApprovalEvent): void;
 }
 
 /**
@@ -55,8 +56,20 @@ export interface FakeBridge {
 export function installBridge(): FakeBridge {
   const calls: BridgeCall[] = [];
   const handlers = new Map<string, (payload: unknown) => unknown>();
+
+  // 主进程对这些通道的返回形状是固定的（都是数组）。没准备 handler 时按真实形状
+  // 给一个空值，而不是 undefined——否则界面会在「拿到 undefined 的列表」上崩掉，
+  // 那测的是替身而不是被测代码。
+  const defaults: Record<string, () => unknown> = {
+    "room:messages": () => [],
+    "runs:snapshot": () => [],
+    "files:pick": () => [],
+    "skills:catalog": () => [],
+  };
+
   const runHandlers: ((event: RunEvent) => void)[] = [];
   const messageHandlers: ((message: Message) => void)[] = [];
+  const approvalHandlers: ((approval: ApprovalEvent) => void)[] = [];
 
   function listen<T>(bucket: ((payload: T) => void)[]) {
     return (handler: (payload: T) => void): (() => void) => {
@@ -71,13 +84,13 @@ export function installBridge(): FakeBridge {
   window.wework = {
     invoke: <TResult>(channel: string, payload?: unknown): Promise<TResult> => {
       calls.push({ channel, payload });
-      const handler = handlers.get(channel);
+      const handler = handlers.get(channel) ?? defaults[channel];
       if (!handler) return Promise.resolve(undefined as TResult);
       return Promise.resolve(handler(payload) as TResult);
     },
     onMessage: listen(messageHandlers),
     onRun: listen(runHandlers),
-    onApproval: () => () => undefined,
+    onApproval: listen(approvalHandlers),
     pathForFile: () => "",
   };
 
@@ -92,6 +105,11 @@ export function installBridge(): FakeBridge {
     emitMessage: (message) => {
       act(() => {
         for (const handler of [...messageHandlers]) handler(message);
+      });
+    },
+    emitApproval: (approval) => {
+      act(() => {
+        for (const handler of [...approvalHandlers]) handler(approval);
       });
     },
   };

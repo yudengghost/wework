@@ -528,12 +528,39 @@ export class RoomService {
     for (const note of notes) {
       await this.appendSystemMessage(pending.roomId, note);
     }
+
+    if (!result.ok) {
+      await this.appendSystemMessage(
+        pending.roomId,
+        `${name} 的招人申请未完成：${result.reason}`,
+      );
+      return;
+    }
+
+    // 招来的人直接进本房间：招人的目的就是让它在这里干活，让用户再手动拉一次
+    // 只会多一道手续——而且 HR 只能 @ 到本房间的成员，不进来等于招了个用不上的人。
+    // 单聊房间例外：它按定义只有一名成员，塞进去就破坏了这个语义。
+    const room = this.deps.rooms.get(pending.roomId);
+    const joined = await this.allowHireInto(room, result.employee.id);
     await this.appendSystemMessage(
       pending.roomId,
-      result.ok
-        ? `${name} 的招人申请已通过，新员工「${result.employee.displayName}」已创建，可在房间头部把它加入本房间。`
-        : `${name} 的招人申请未完成：${result.reason}`,
+      `${name} 的招人申请已通过，新员工「${result.employee.displayName}」已创建` +
+        (joined ? "并加入本房间。" : "。可以在房间头部把它加入本房间，或直接和它单聊。"),
     );
+  }
+
+  /** 把新招的人放进发起申请的房间（只在多人房间做）。 */
+  private async allowHireInto(room: Room | undefined, employeeId: string): Promise<boolean> {
+    if (!room || room.kind !== "group" || room.memberIds.includes(employeeId)) return false;
+    try {
+      await this.deps.rooms.update(room.id, {
+        memberIds: [...room.memberIds, employeeId],
+      });
+      return true;
+    } catch {
+      // 进不去房间不影响员工已经建好这件事，说明文案已经写了后备路径。
+      return false;
+    }
   }
 
   /** 结果类说明用系统消息落进房间，保证人类一定看得见。 */

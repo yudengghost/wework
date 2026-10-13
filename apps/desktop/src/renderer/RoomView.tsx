@@ -165,6 +165,9 @@ interface RunPanelProps {
   nowMs: number;
   open: boolean;
   onToggle: () => void;
+  /** 每条轨迹（= 每条触发它的消息）自己的展开状态。 */
+  openIds: Record<string, boolean>;
+  onToggleTrace: (runId: string, open: boolean) => void;
   onStop: (runId: string) => void;
 }
 
@@ -182,6 +185,8 @@ function RunPanel({
   nowMs,
   open,
   onToggle,
+  openIds,
+  onToggleTrace,
   onStop,
 }: RunPanelProps) {
   const latest = active.at(-1) ?? recent[0];
@@ -195,31 +200,42 @@ function RunPanel({
         <div className="run-trace">
           {listed.map((trace) => {
             const failed = trace.status === "failed" || trace.status === "skipped";
+            const why = trace.error ?? trace.reason;
+            // 正在跑的默认展开（用户此刻就是要盯它），已经结束的默认收起，
+            // 免得一屏全是历史步骤。
+            const itemOpen = openIds[trace.runId] ?? isActive(trace);
             return (
               <div className="trace-item" key={trace.runId}>
-                <div className="trace-head">
+                <button
+                  className="trace-head"
+                  aria-expanded={itemOpen}
+                  onClick={() => onToggleTrace(trace.runId, !itemOpen)}
+                >
+                  <span className={itemOpen ? "chevron open" : "chevron"} />
                   <span className="trace-who">{nameOf(trace.employeeId)}</span>
                   <span className={`run-state ${trace.status}`}>{statusLabel(trace.status)}</span>
                   <span className="trace-clock">{clockOf(trace, nowMs)}</span>
                   <span className="trace-trigger" title={trace.trigger}>
                     {triggerLine(trace)}
                   </span>
-                </div>
-                {failed && (trace.error ?? trace.reason) !== undefined && (
-                  <div className="trace-why">{trace.error ?? trace.reason}</div>
+                  <span className="trace-count">{trace.steps.length} 步</span>
+                </button>
+                {/* 失败原因不藏在折叠里：没跑起来的原因本身就是答案。 */}
+                {failed && why !== undefined && <div className="trace-why">{why}</div>}
+                {itemOpen && (
+                  <ol className="trace-steps">
+                    {recentSteps(trace).map((step, index) => {
+                      const text = describeStep(step, {
+                        workspaceDir: workspaceOf(trace.employeeId),
+                      });
+                      return (
+                        <li key={`${step.at}-${index}`} className={step.kind}>
+                          <span title={text}>{text}</span>
+                        </li>
+                      );
+                    })}
+                  </ol>
                 )}
-                <ol className="trace-steps">
-                  {recentSteps(trace).map((step, index) => {
-                    const text = describeStep(step, {
-                      workspaceDir: workspaceOf(trace.employeeId),
-                    });
-                    return (
-                      <li key={`${step.at}-${index}`} className={step.kind}>
-                        <span title={text}>{text}</span>
-                      </li>
-                    );
-                  })}
-                </ol>
               </div>
             );
           })}
@@ -323,6 +339,8 @@ export function RoomView(props: RoomViewProps) {
   const [pending, setPending] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
+  /** 每条轨迹的展开状态；不在这里的就按「在跑展开、结束收起」的默认值。 */
+  const [openTraceIds, setOpenTraceIds] = useState<Record<string, boolean>>({});
   const listRef = useRef<HTMLDivElement>(null);
 
   // 本房间的运行：进行中的按受理顺序排在后面，历史记录留在面板里备查。
@@ -374,6 +392,7 @@ export function RoomView(props: RoomViewProps) {
   useEffect(() => {
     followBottomRef.current = true;
     setTraceOpen(false);
+    setOpenTraceIds({});
     scrollToLatest();
   }, [room.id]);
 
@@ -719,6 +738,10 @@ export function RoomView(props: RoomViewProps) {
         nowMs={nowMs}
         open={traceOpen}
         onToggle={() => setTraceOpen((value) => !value)}
+        openIds={openTraceIds}
+        onToggleTrace={(runId, next) =>
+          setOpenTraceIds((prev) => ({ ...prev, [runId]: next }))
+        }
         onStop={props.onStopRun}
       />
 
