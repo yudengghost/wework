@@ -114,8 +114,13 @@ interface RunTask {
 }
 
 interface TurnBudget {
-  /** 本轮「员工接续触发」的运行还剩几次。 */
-  remainingCascade: number;
+  /**
+   * 本轮「员工接续触发」的运行还剩几次；null = 不限制。
+   *
+   * 这是**每条人类消息一轮共享的一个总额度**，不是每位员工各一份：
+   * 一条消息引发的所有接力（含途中经过审批放行的那些）都从同一个数里扣。
+   */
+  remainingCascade: number | null;
 }
 
 interface PendingApproval {
@@ -444,7 +449,10 @@ export class RoomService {
     };
 
     // 人类点名的运行没有次数上限；只有员工之间接续触发的那条链子要限流。
-    if (input.origin === "cascade" && input.turn.remainingCascade <= 0) {
+    // 额度是「本轮共享的一个总数」，配成 null 就完全不限。
+    const cascade = input.origin === "cascade";
+    const quota = input.turn.remainingCascade;
+    if (cascade && quota !== null && quota <= 0) {
       reject("本轮员工接续触发的运行次数已达上限");
       return;
     }
@@ -465,7 +473,7 @@ export class RoomService {
     }
     this.recentTriggers.set(dedupeKey, at);
 
-    if (input.origin === "cascade") input.turn.remainingCascade -= 1;
+    if (cascade && quota !== null) input.turn.remainingCascade = quota - 1;
     const task: RunTask = { ...input, runId: createId("run") };
     this.queue.push(task);
     this.traces.queue({

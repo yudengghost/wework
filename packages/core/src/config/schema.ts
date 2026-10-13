@@ -17,13 +17,16 @@ export const schedulerSettingsSchema = z.object({
    */
   wallClockBudgetMs: z.number().int().positive().nullable().default(null),
   /**
-   * 每轮「员工接续触发」的运行上限。
+   * 每轮「员工接续触发」的运行上限。null = 不限制。
    *
    * 人类点名的运行不受它约束——用户 @ 了几个人就该有几个人干活。
    * 它管的是员工之间互相 @ 那条链子：那是乘法增长（10 人各 @ 9 人，
    * 两层就上百次），不设阀会真的烧穿额度。
+   *
+   * 计数口径：**每条人类消息开启的一轮共享一个额度**（不是每位员工各一份）。
+   * 这场接力里所有员工接续触发的运行、以及这些接力经过审批放行的运行，都从同一个数里扣。
    */
-  maxCascadeRuns: z.number().int().positive().default(12),
+  maxCascadeRuns: z.number().int().positive().nullable().default(12),
   maxMentionDepth: z.number().int().nonnegative().default(3),
   dedupeWindowMs: z.number().int().nonnegative().default(5000),
   /** 上下文条数上限：冷启动时作为起步窗口，之后作为增量的封顶。 */

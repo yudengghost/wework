@@ -1605,6 +1605,41 @@ describe("运行次数上限与超时", () => {
     expect(skipped).toEqual(["本轮员工接续触发的运行次数已达上限"]);
   });
 
+  it("接续上限配成 null 就是完全不限：接续几次都放行", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder, reviewer } = await seedTeam(harness);
+    const third = await harness.employees.create({
+      displayName: "小前",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "unlimited"),
+      stateDir: join(workDir, "state", "unlimited"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    await harness.rooms.update(roomId, {
+      memberIds: [...(harness.rooms.get(roomId)?.memberIds ?? []), third.id],
+    });
+    await harness.config.update({ scheduler: { maxCascadeRuns: null } });
+    // 只有第一次让 小码 @ 两位同事，避免接力没完没了地循环
+    let coderTurns = 0;
+    harness.setBehavior((_request, displayName) => {
+      if (displayName !== "小码") return { text: "看完了" };
+      coderTurns += 1;
+      return coderTurns === 1 ? { text: "@小测 @小前 你们一起看下" } : { text: "收尾" };
+    });
+    const skipped: string[] = [];
+    harness.events.on("run-skipped", (payload) => skipped.push(payload.reason));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始");
+    await harness.service.waitForIdle();
+
+    // 对照上一条用例（上限=1 时只放出 1 次接力）：这里两次接力全部放行
+    expect(harness.calls.map((call) => call.employeeId).sort()).toEqual(
+      [coder.id, reviewer.id, third.id].sort(),
+    );
+    expect(skipped).toEqual([]);
+  });
+
   it("默认不给单次运行设超时：跑得久不等于出错", async () => {
     const harness = await makeHarness();
     const { roomId } = await seedTeam(harness);

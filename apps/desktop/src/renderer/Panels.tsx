@@ -796,6 +796,21 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
     setConfig({ ...config, scheduler: { ...config.scheduler, wallClockBudgetMs: value } });
   };
 
+  /** 员工接续运行上限：同样留空 = 不限制。 */
+  const setCascadeLimit = (value: number | null): void => {
+    setConfig({ ...config, scheduler: { ...config.scheduler, maxCascadeRuns: value } });
+  };
+
+  /**
+   * 上限输入框的取值：留空或 0 都表示「不限制」（存成 null）。
+   * 0 也当作不限制是为了顺手——很多人的直觉就是拿 0 表示无限，
+   * 让它直接生效比弹出「必须大于 0」的校验错误友好。
+   */
+  const toLimit = (raw: string): number | null => {
+    const value = Number(raw);
+    return raw.trim() === "" || value === 0 ? null : value;
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(event) => event.stopPropagation()}>
@@ -917,7 +932,6 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
         <div className="grid2">
           {(
             [
-              ["maxCascadeRuns", "员工接续运行上限"],
               ["maxMentionDepth", "@ 接续层数上限"],
               ["dedupeWindowMs", "重复消息去重窗口(ms)"],
               ["contextWindowMessages", "房间上下文条数"],
@@ -933,20 +947,28 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
             </div>
           ))}
           <div className="field">
-            <label>单次运行超时(ms，留空=不限制)</label>
+            <label>员工接续运行上限(留空或 0 = 不限制)</label>
+            <input
+              type="number"
+              value={config.scheduler.maxCascadeRuns ?? ""}
+              placeholder="不限制"
+              onChange={(event) => setCascadeLimit(toLimit(event.target.value))}
+            />
+          </div>
+          <div className="field">
+            <label>单次运行超时(ms，留空或 0 = 不限制)</label>
             <input
               type="number"
               value={config.scheduler.wallClockBudgetMs ?? ""}
               placeholder="不限制"
-              onChange={(event) =>
-                setRunLimit(event.target.value === "" ? null : Number(event.target.value))
-              }
+              onChange={(event) => setRunLimit(toLimit(event.target.value))}
             />
           </div>
         </div>
         <p className="sub" style={{ margin: "6px 0 0" }}>
-          人类点名的运行没有次数上限（@ 了几个人就有几个人干活）；「员工接续运行上限」只管
-          员工之间互相 @ 触发的接力。单次运行默认不设超时：跑得久不等于出错，要中断就点运行条上的停止。
+          人类点名的运行没有次数上限（@ 了几个人就有几个人干活）；「员工接续运行上限」只管员工
+          之间互相 @ 触发的接力，而且它是每条人类消息一轮共享的一个总数，不是每位员工各一份。
+          单次运行默认不设超时：跑得久不等于出错，要中断就点运行条上的停止。
         </p>
 
         </div></details>
