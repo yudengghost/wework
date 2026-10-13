@@ -48,6 +48,7 @@ interface RoomOptions {
   runs?: RunTrace[];
   nowMs?: number;
   onStopRun?: (runId: string) => void;
+  onSaveRules?: (rules: string) => Promise<void>;
   onSend?: (body: string, files: PendingFile[]) => Promise<void>;
   transcriptError?: string | null;
   onRepairTranscript?: () => Promise<void>;
@@ -62,6 +63,7 @@ function renderRoom(room: Room, options: RoomOptions = {}): void {
       runs={options.runs ?? []}
       nowMs={options.nowMs ?? NOW}
       onStopRun={options.onStopRun ?? (() => undefined)}
+      onSaveRules={options.onSaveRules ?? (async () => undefined)}
       approvals={options.approvals ?? []}
       onSend={options.onSend ?? (async () => undefined)}
       onResolveApproval={() => undefined}
@@ -110,6 +112,66 @@ describe("RoomView 发送消息", () => {
 });
 
 describe("RoomView 审批与 @ 补全", () => {
+  it("群规入口：标题行给出已设提示，展开能编辑并保存", async () => {
+    installBridge();
+    const employee = makeEmployee({ displayName: "小码" });
+    const room = makeRoom({
+      name: "发布前检查",
+      memberIds: [employee.id],
+      systemPrompt: "本群只做发布前评审，不改代码。",
+    });
+    const onSaveRules = vi.fn(async () => undefined);
+    render(
+      <RoomView
+        room={room}
+        employees={[employee]}
+        messages={[]}
+        runs={[]}
+        nowMs={NOW}
+        onStopRun={() => undefined}
+        approvals={[]}
+        onSend={async () => undefined}
+        onResolveApproval={() => undefined}
+        onSaveRules={onSaveRules}
+        onAddMember={async () => undefined}
+        onRemoveMember={async () => undefined}
+        onDeleteRoom={() => undefined}
+      />,
+    );
+
+    // 设了群规时，房间副标题会提示一句，不用点开就知道
+    expect(screen.getByText(/已设群规/)).toBeTruthy();
+    // 默认收起：先只看到入口按钮
+    expect(document.querySelector(".room-rules")).toBeNull();
+
+    fireEvent.click(screen.getByText("群规"));
+    const box = screen.getByRole("textbox", { name: "群规" }) as HTMLTextAreaElement;
+    expect(box.value).toBe("本群只做发布前评审，不改代码。");
+
+    fireEvent.change(box, { target: { value: "本群只做评审，不改代码；结论必须有证据。" } });
+    fireEvent.click(screen.getByText("保存"));
+
+    await waitFor(() =>
+      expect(onSaveRules).toHaveBeenCalledWith("本群只做评审，不改代码；结论必须有证据。"),
+    );
+  });
+
+  it("群规留空也能保存：界面上说清「留空=不注入」", async () => {
+    installBridge();
+    const employee = makeEmployee({ displayName: "小码" });
+    const room = makeRoom({ memberIds: [employee.id], systemPrompt: "旧的群规" });
+    const onSaveRules = vi.fn(async () => undefined);
+    renderRoom(room, { employees: [employee], onSaveRules });
+
+    fireEvent.click(screen.getByText("群规"));
+    const box = screen.getByRole("textbox", { name: "群规" }) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "" } });
+    expect(screen.getByText(/留空：不注入任何房间级提示词/)).toBeTruthy();
+    fireEvent.click(screen.getByText("保存"));
+
+    await waitFor(() => expect(onSaveRules).toHaveBeenCalledWith(""));
+  });
+
   it("一批招人申请合成一次审核：能逐个展开看人设，也能整批批准", () => {
     installBridge();
     const hr = makeEmployee({ displayName: "HR主管" });
@@ -141,6 +203,7 @@ describe("RoomView 审批与 @ 补全", () => {
         ]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
+        onSaveRules={async () => undefined}
         onResolveApprovals={onResolveApprovals}
         onAddMember={async () => undefined}
         onRemoveMember={async () => undefined}
@@ -202,6 +265,7 @@ describe("RoomView 审批与 @ 补全", () => {
         ]}
         onSend={async () => undefined}
         onResolveApproval={onResolveApproval}
+        onSaveRules={async () => undefined}
         onAddMember={async () => undefined}
         onRemoveMember={async () => undefined}
         onDeleteRoom={() => undefined}
@@ -286,6 +350,7 @@ describe("RoomView 审批与 @ 补全", () => {
         approvals={[]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
+        onSaveRules={async () => undefined}
         onAddMember={async () => undefined}
         onRemoveMember={async () => undefined}
         onDeleteRoom={() => undefined}
@@ -321,6 +386,7 @@ describe("RoomView 审批与 @ 补全", () => {
         approvals={[]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
+        onSaveRules={async () => undefined}
         onAddMember={async () => undefined}
         onRemoveMember={async () => undefined}
         onDeleteRoom={() => undefined}
@@ -349,6 +415,7 @@ describe("RoomView 审批与 @ 补全", () => {
         approvals={[]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
+        onSaveRules={async () => undefined}
         onAddMember={async () => undefined}
         onRemoveMember={async () => undefined}
         onDeleteRoom={() => undefined}
@@ -437,6 +504,7 @@ describe("RoomView 消息列表", () => {
           approvals={[]}
           onSend={async () => undefined}
           onResolveApproval={() => undefined}
+          onSaveRules={async () => undefined}
           onAddMember={async () => undefined}
           onRemoveMember={async () => undefined}
           onDeleteRoom={() => undefined}
@@ -484,6 +552,7 @@ describe("RoomView 消息列表", () => {
           approvals={[]}
           onSend={async () => undefined}
           onResolveApproval={() => undefined}
+          onSaveRules={async () => undefined}
           onAddMember={async () => undefined}
           onRemoveMember={async () => undefined}
           onDeleteRoom={() => undefined}
@@ -521,6 +590,7 @@ describe("RoomView 消息列表", () => {
           approvals={[]}
           onSend={async () => undefined}
           onResolveApproval={() => undefined}
+          onSaveRules={async () => undefined}
           onAddMember={async () => undefined}
           onRemoveMember={async () => undefined}
           onDeleteRoom={() => undefined}
@@ -568,6 +638,7 @@ describe("RoomView 运行条与轨迹", () => {
           approvals={[]}
           onSend={async () => undefined}
           onResolveApproval={() => undefined}
+          onSaveRules={async () => undefined}
           onAddMember={async () => undefined}
           onRemoveMember={async () => undefined}
           onDeleteRoom={() => undefined}
@@ -619,6 +690,7 @@ describe("RoomView 运行条与轨迹", () => {
         approvals={[]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
+        onSaveRules={async () => undefined}
         onAddMember={async () => undefined}
         onRemoveMember={async () => undefined}
         onDeleteRoom={() => undefined}
@@ -674,6 +746,7 @@ describe("RoomView 运行条与轨迹", () => {
         approvals={[]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
+        onSaveRules={async () => undefined}
         onAddMember={async () => undefined}
         onRemoveMember={async () => undefined}
         onDeleteRoom={() => undefined}
@@ -721,6 +794,7 @@ describe("RoomView 运行条与轨迹", () => {
         approvals={[]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
+        onSaveRules={async () => undefined}
         onAddMember={async () => undefined}
         onRemoveMember={async () => undefined}
         onDeleteRoom={() => undefined}
@@ -745,6 +819,7 @@ describe("RoomView 运行条与轨迹", () => {
         approvals={[]}
         onSend={async () => undefined}
         onResolveApproval={() => undefined}
+        onSaveRules={async () => undefined}
         onAddMember={async () => undefined}
         onRemoveMember={async () => undefined}
         onDeleteRoom={() => undefined}

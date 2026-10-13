@@ -219,9 +219,18 @@ export function registerIpc(
     });
   });
 
-  handle<{ id: string; patch: { name?: string; memberIds?: string[] } }, unknown>(
+  handle<
+    { id: string; patch: { name?: string; memberIds?: string[]; systemPrompt?: string } },
+    unknown
+  >(
     "room:update",
-    ({ id, patch }) => rooms.update(id, patch),
+    ({ id, patch }) =>
+      rooms.update(id, {
+        ...(patch.name === undefined ? {} : { name: patch.name.trim() }),
+        ...(patch.memberIds === undefined ? {} : { memberIds: patch.memberIds }),
+        // 允许显式写空串（用户清空群规）：注入时按空串跳过，不会留下空的提示词块。
+        ...(patch.systemPrompt === undefined ? {} : { systemPrompt: patch.systemPrompt }),
+      }),
   );
 
   /** 解散房间：移除房间条目并删除它的消息记录（员工的工作目录与记忆不受影响）。 */

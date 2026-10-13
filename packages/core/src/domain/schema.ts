@@ -100,6 +100,12 @@ export const roomSchema = z.object({
   /** group = 多人房间；direct = 与单个员工的单聊。 */
   kind: z.enum(["group", "direct"]).default("group"),
   memberIds: z.array(z.string().min(1)).default([]),
+  /**
+   * 房间级提示词（界面上叫「群规」）：这个房间的背景与规矩，每个房间各写一份。
+   * 与员工自己的 systemPrompt 分开：员工人设是「你是谁」，群规是「在这个房间怎么做事」。
+   * 留空则不注入，避免往提示词里塞空块。
+   */
+  systemPrompt: z.string().optional(),
   policy: roomPolicySchema.optional(),
   createdAt: isoDateTimeSchema,
 });

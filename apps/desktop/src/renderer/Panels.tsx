@@ -912,7 +912,6 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
         <div className="grid2">
           {(
             [
-              ["maxConcurrentRuns", "同时运行上限"],
               ["maxRunsPerTurn", "每轮运行上限"],
               ["maxMentionDepth", "@ 接续层数上限"],
               ["dedupeWindowMs", "重复消息去重窗口(ms)"],

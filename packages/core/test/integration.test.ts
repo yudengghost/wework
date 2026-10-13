@@ -29,7 +29,7 @@ describe("核心存储层协同", () => {
 
     const configStore = new ConfigStore(store, join(dataDir, "config.json"));
     const config = await configStore.load();
-    expect(config.scheduler.maxConcurrentRuns).toBe(3);
+    expect(config.scheduler.maxMentionDepth).toBe(3);
     await configStore.update({ policy: { employeeMentionsEmployee: "confirm" } });
 
     const employeeStore = new EmployeeStore(store, join(dataDir, "employees.json"));

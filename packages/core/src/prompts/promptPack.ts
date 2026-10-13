@@ -20,6 +20,10 @@ export const defaultPrompts = {
 
   /** 单聊房间里没有同事可 @。 */
   teamDirect: "这是一个单聊房间，房间里只有你和用户，没有其他同事，请不要 @ 任何人。",
+
+  /** 房间级提示词（界面上的「群规」）。占位符：{rules} */
+  roomRulesHeader:
+    "这个房间的规矩与背景（由用户设定）。它管的是「在这个房间怎么做事」，不改变你的职责：",
   /** 群聊房间的同事名单说明。占位符：{count} */
   teamGroupHeader: "这是一个群聊房间。除你之外还有 {count} 位同事：{list}",
   teamNoColleagues: "（没有）",

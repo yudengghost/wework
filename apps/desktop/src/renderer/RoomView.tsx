@@ -89,6 +89,8 @@ interface RoomViewProps {
   onResolveApprovals?: (approvalIds: string[], approved: boolean) => void;
   onAddMember: (employeeId: string) => Promise<void>;
   onRemoveMember: (employeeId: string) => Promise<void>;
+  /** 保存这个房间的「群规」（房间级提示词）；空串表示不设置。 */
+  onSaveRules: (rules: string) => Promise<void>;
   onDeleteRoom: () => void;
   /** 房间里已经没有在册员工（例如员工已被移除）：只读，保留历史。 */
   readOnly?: boolean;
@@ -168,6 +170,77 @@ interface ApprovalCardProps {
   nameOf: (employeeId: string) => string;
   onResolve: (approvalId: string, approved: boolean) => void;
   onResolveMany: (approvalIds: string[], approved: boolean) => void;
+}
+
+/**
+ * 群规：房间级提示词。
+ *
+ * 和员工人设分开：员工人设回答「你是谁」，群规回答「在这个房间怎么做事」
+ * （这个群的项目背景、评审口径、禁止的动作……）。留空就不注入，不往提示词里塞空块。
+ */
+function RoomRulesEditor({
+  room,
+  onSave,
+  onClose,
+}: {
+  room: Room;
+  onSave: (rules: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const stored = room.systemPrompt ?? "";
+  const [text, setText] = useState(stored);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // 保存成功或别处改了之后，以服务端那份为准。
+  useEffect(() => {
+    setText(stored);
+  }, [stored]);
+
+  const dirty = text !== stored;
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    try {
+      await onSave(text);
+      setError(null);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="room-rules">
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label>群规（这个房间的背景与规矩，可以留空）</label>
+        <textarea
+          className="role-text"
+          aria-label="群规"
+          value={text}
+          placeholder="例如：本群只做发布前评审，不改代码；结论必须给出可复现的证据；不确定就说不确定。"
+          onChange={(event) => setText(event.target.value)}
+        />
+        <div className="role-actions">
+          <span className="sub">
+            {text.trim() === "" ? "留空：不注入任何房间级提示词" : `${text.length} 字 · 房间内每位员工都会看到`}
+            {dirty ? " · 有未保存的改动" : ""}
+          </span>
+          <div className="spacer" />
+          {dirty && (
+            <button onClick={() => setText(stored)} disabled={saving}>
+              放弃改动
+            </button>
+          )}
+          <button className="primary" onClick={() => void save()} disabled={!dirty || saving}>
+            {saving ? "保存中…" : "保存"}
+          </button>
+          <button onClick={onClose}>收起</button>
+        </div>
+        {error && <div className="error">{error}</div>}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -480,6 +553,7 @@ export function RoomView(props: RoomViewProps) {
   const [pending, setPending] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   /** 每条轨迹的展开状态；不在这里的就按「在跑展开、结束收起」的默认值。 */
   const [openTraceIds, setOpenTraceIds] = useState<Record<string, boolean>>({});
   const listRef = useRef<HTMLDivElement>(null);
@@ -492,6 +566,7 @@ export function RoomView(props: RoomViewProps) {
     .sort((left, right) => left.queuedAt.localeCompare(right.queuedAt));
   const recentRuns = roomRuns.filter((trace) => !isActive(trace));
   const approvalGroups = groupApprovals(approvals);
+  const rules = room.systemPrompt ?? "";
   const resolveMany =
     props.onResolveApprovals ??
     ((ids: string[], approved: boolean) =>
@@ -502,7 +577,16 @@ export function RoomView(props: RoomViewProps) {
    * 否则用户往回翻历史会被不断拽回去。
    */
   const streamLength = activeRuns.reduce((total, trace) => total + trace.text.length, 0);
-  const rowCount = messages.length + activeRuns.length;
+  /*
+   * 只有「已经落库的消息」进虚拟列表。
+   *
+   * 运行中的那几行会一边流式增长一边被排布，而虚拟列表的行高是量出来的：
+   * 量之前它按估算值摆放，量到之后才修正。对一条不断长高的行来说，这个
+   * 修正永远慢半拍——后面那一行就会被摆到旧位置、和它叠在一起（实测就是这样）。
+   * 活动行本来就只有几个、而且永远在末尾，交给浏览器正常排布即可，
+   * 既没有重叠的可能，也不影响虚拟列表省下的那笔开销。
+   */
+  const rowCount = messages.length;
 
   // 长会话只把可见的几行放进 DOM：几千条历史全量挂载时，滚动与流式刷新都会发卡。
   const virtualizer = useVirtualizer({
@@ -538,6 +622,7 @@ export function RoomView(props: RoomViewProps) {
   useEffect(() => {
     followBottomRef.current = true;
     setTraceOpen(false);
+    setRulesOpen(false);
     setOpenTraceIds({});
     scrollToLatest();
   }, [room.id]);
@@ -644,6 +729,7 @@ export function RoomView(props: RoomViewProps) {
             {isDirect
               ? `${nameOf(directPartner?.id ?? "")} · ${directPartner?.framework ?? ""}`
               : `群聊 · ${members.length} 名成员`}
+            {rules.trim() === "" ? "" : " · 已设群规"}
           </div>
         </div>
         {activeRuns.length > 0 && (
@@ -696,6 +782,18 @@ export function RoomView(props: RoomViewProps) {
           </div>
         )}
         <button
+          className={rules.trim() === "" ? "room-rules-btn" : "room-rules-btn on"}
+          title={
+            rules.trim() === ""
+              ? "给这个房间写一份群规（房间级提示词，可留空）"
+              : "查看 / 修改这个房间的群规"
+          }
+          aria-expanded={rulesOpen}
+          onClick={() => setRulesOpen((open) => !open)}
+        >
+          群规
+        </button>
+        <button
           className="icon-btn danger"
           title={isDirect ? "删除会话" : "解散群聊"}
           onClick={props.onDeleteRoom}
@@ -703,6 +801,14 @@ export function RoomView(props: RoomViewProps) {
           <TrashIcon size={17} />
         </button>
       </header>
+
+      {rulesOpen && (
+        <RoomRulesEditor
+          room={room}
+          onSave={props.onSaveRules}
+          onClose={() => setRulesOpen(false)}
+        />
+      )}
 
       {!isDirect && (
         <div className="member-bar">
@@ -755,7 +861,7 @@ export function RoomView(props: RoomViewProps) {
           followBottomRef.current = followAfterScroll(event.currentTarget, programmaticTopRef.current);
         }}
       >
-        {rowCount === 0 && (
+        {rowCount === 0 && activeRuns.length === 0 && (
           <div className="empty">
             {isDirect
               ? `还没有聊过。直接说要 ${directPartner?.displayName ?? "这位员工"} 做什么就行。`
@@ -773,11 +879,10 @@ export function RoomView(props: RoomViewProps) {
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const index = virtualRow.index;
             const message = messages[index];
-            const trace = message ? undefined : activeRuns[index - messages.length];
             const senderId = message?.sender.kind === "employee" ? message.sender.employeeId : null;
             return (
               <div
-                key={message ? message.id : `run:${trace?.runId ?? index}`}
+                key={message?.id ?? index}
                 className="message-slot"
                 style={{
                   position: "absolute",
@@ -790,7 +895,7 @@ export function RoomView(props: RoomViewProps) {
                 {/* 量高度的节点必须和 transform 分开：虚拟列表量的是元素自身，
                     而 transform 会污染它读到的位置，那样子项尺寸永远更新不了。 */}
                 <div className="message-slot-inner" data-index={index} ref={virtualizer.measureElement}>
-                {message ? (
+                {message && (
                   <MessageRow
                     mine={message.sender.kind === "human"}
                     // 系统消息是应用自己写的说明文案，不是 Markdown，保持原样。
@@ -811,19 +916,26 @@ export function RoomView(props: RoomViewProps) {
                       activeRuns.some((item) => item.employeeId === senderId)
                     }
                   />
-                ) : trace ? (
-                  <ActivityRow
-                    trace={trace}
-                    name={nameOf(trace.employeeId)}
-                    nowMs={nowMs}
-                    workspaceDir={workspaceOf(trace.employeeId)}
-                  />
-                ) : null}
+                )}
                 </div>
               </div>
             );
           })}
         </div>
+        {/* 运行中的行不进虚拟列表：它们会一边长高一边被排布，量高度永远慢半拍。 */}
+        {activeRuns.length > 0 && (
+          <div className="activity-flow">
+            {activeRuns.map((trace) => (
+              <ActivityRow
+                key={trace.runId}
+                trace={trace}
+                name={nameOf(trace.employeeId)}
+                nowMs={nowMs}
+                workspaceDir={workspaceOf(trace.employeeId)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {approvalGroups.length > 0 && (

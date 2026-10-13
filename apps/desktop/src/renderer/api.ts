@@ -126,7 +126,7 @@ export const api = {
     window.wework.invoke<Room>("room:create", { name, memberIds, kind }),
   directRoom: (employeeId: string) =>
     window.wework.invoke<Room>("room:direct", { employeeId }),
-  updateRoom: (id: string, patch: { name?: string; memberIds?: string[] }) =>
+  updateRoom: (id: string, patch: { name?: string; memberIds?: string[]; systemPrompt?: string }) =>
     window.wework.invoke<Room>("room:update", { id, patch }),
   removeRoom: (id: string) => window.wework.invoke<boolean>("room:remove", { id }),
   setRoomMember: (roomId: string, employeeId: string, member: boolean) =>

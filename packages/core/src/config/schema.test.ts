@@ -11,7 +11,6 @@ describe("defaultConfig", () => {
         "claude-code": { executablePath: null, detectWsl: false },
       },
       scheduler: {
-        maxConcurrentRuns: 3,
         maxRunsPerTurn: 5,
         maxMentionDepth: 3,
         dedupeWindowMs: 5000,
@@ -41,9 +40,9 @@ describe("defaultConfig", () => {
 
   it("每次调用返回互不共享的对象", () => {
     const first = defaultConfig();
-    first.scheduler.maxConcurrentRuns = 99;
+    first.scheduler.maxMentionDepth = 99;
 
-    expect(defaultConfig().scheduler.maxConcurrentRuns).toBe(3);
+    expect(defaultConfig().scheduler.maxMentionDepth).toBe(3);
   });
 });
 
@@ -55,7 +54,7 @@ describe("weworkConfigSchema", () => {
 
     expect(config.policy.employeeMentionsAll).toBe("auto");
     expect(config.policy.employeeMentionsEmployee).toBe("auto");
-    expect(config.scheduler.maxConcurrentRuns).toBe(3);
+    expect(config.scheduler.maxMentionDepth).toBe(3);
   });
 
   it("拒绝非法的策略枚举值", () => {

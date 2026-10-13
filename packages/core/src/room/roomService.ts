@@ -690,14 +690,10 @@ export class RoomService {
   }
 
   private async drain(): Promise<void> {
-    const { maxConcurrentRuns } = this.deps.config.get().scheduler;
     while (this.queue.length > 0) {
-      if (this.running.size >= maxConcurrentRuns) {
-        await Promise.race([...this.running]);
-        continue;
-      }
-
-      // 只挑「员工当前空闲」的任务；同一位员工的任务严格串行，避免共用一个会话并发跑。
+      // 唯一的并发约束是「同一位员工同一时间只跑一个」：每位员工都是独立实例，
+      // 各跑各的，不会因为别人在忙而排队。同一位员工的任务严格串行，
+      // 避免共用一个 CLI 会话并发跑。
       const index = this.queue.findIndex((task) => !this.busyEmployees.has(task.employeeId));
       if (index === -1) {
         if (this.running.size === 0) break;
@@ -989,6 +985,8 @@ export class RoomService {
       "<context>",
       contextLines === "" ? this.prompts.contextEmpty : contextLines,
       "</context>",
+      // 群规放在同事名单之前：先说「这个房间怎么做事」，再说「这里有谁」。
+      ...(room?.systemPrompt?.trim() ? ["", this.roomRulesBlock(room.systemPrompt)] : []),
       ...(room === undefined ? [] : ["", await this.teamBlock(room, employee)]),
       ...(attachments.length === 0 ? [] : ["", this.attachmentBlock(attachments)]),
       ...(memory === "" ? [] : ["", memory]),
@@ -1022,6 +1020,16 @@ export class RoomService {
    */
   private async teamBlock(room: Room, employee: Employee): Promise<string> {
     return this.buildTeamBlock(room, employee);
+  }
+
+  /** 房间级提示词（群规）：留空时不会被调用，所以这里只管拼块。 */
+  private roomRulesBlock(rules: string): string {
+    return [
+      "<room_rules>",
+      this.prompts.roomRulesHeader,
+      rules.trim(),
+      "</room_rules>",
+    ].join("\n");
   }
 
   /**

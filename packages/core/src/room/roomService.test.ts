@@ -601,17 +601,35 @@ describe("RoomService", () => {
     expect(finished.every((entry) => entry.ok === false)).toBe(true);
   });
 
-  it("并发闸生效：maxConcurrentRuns=1 时两个员工不重叠执行", async () => {
+  it("不同员工互不排队：五个人一起派活就是五个并发，没有全局并发闸", async () => {
     const harness = await makeHarness();
     const { roomId } = await seedTeam(harness);
-    await harness.config.update({ scheduler: { maxConcurrentRuns: 1 } });
-    harness.setBehavior(() => ({ text: "干完了", delayMs: 120 }));
+    for (const name of ["小前", "小后", "小测二号"]) {
+      await harness.employees.create({
+        displayName: name,
+        framework: "codex",
+        workspaceDir: join(workDir, "ws", name),
+        stateDir: join(workDir, "state", name),
+        permissions: { mode: "read-only" },
+        skills: [],
+      });
+    }
+    for (const employee of harness.employees.list()) {
+      await harness.rooms.update(roomId, {
+        memberIds: [...(harness.rooms.get(roomId)?.memberIds ?? []), employee.id],
+      });
+    }
+    harness.setBehavior(() => ({ text: "干完了", delayMs: 150 }));
 
     await harness.service.submitHumanMessage(roomId, "@all 各自干活");
-    await harness.service.waitForIdle();
+    await new Promise((resolve) => setTimeout(resolve, 60));
 
-    expect(harness.calls).toHaveLength(2);
-    expect(harness.maxConcurrency()).toBe(1);
+    // 以前有「同时运行上限=3」的全局闸，第 4 个人会一直排队；
+    // 现在每位员工都是独立实例，只有同一位员工的任务才串行。
+    expect(harness.service.snapshotRuns().filter((trace) => trace.status === "running"))
+      .toHaveLength(5);
+    await harness.service.waitForIdle();
+    expect(harness.maxConcurrency()).toBe(5);
   });
 
   it("单聊房间里不写 @ 也会投递给唯一成员", async () => {
@@ -772,6 +790,44 @@ describe("RoomService", () => {
     expect(harness.calls[0]?.prompt).toContain("等用户点允许");
   });
 
+  it("群规会注入提示词，且排在同事名单之前", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    await harness.rooms.update(roomId, {
+      systemPrompt: "本群只做发布前评审，不改代码；结论必须给出可复现的证据。",
+    });
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始吧");
+    await harness.service.waitForIdle();
+
+    const prompt = harness.calls[0]?.prompt ?? "";
+    expect(prompt).toContain("<room_rules>");
+    expect(prompt).toContain("本群只做发布前评审，不改代码");
+    // 先说「这个房间怎么做事」，再说「这里有谁」
+    expect(prompt.indexOf("<room_rules>")).toBeLessThan(prompt.indexOf("<team>"));
+  });
+
+  it("没写群规时完全不注入空块", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始吧");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[0]?.prompt).not.toContain("<room_rules>");
+  });
+
+  it("只有空白的群规等同于没写", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    await harness.rooms.update(roomId, { systemPrompt: "   \n  " });
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始吧");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[0]?.prompt).not.toContain("<room_rules>");
+  });
+
   it("单聊里明确说没有同事可以 @", async () => {
     const harness = await makeHarness();
     const employee = await harness.employees.create({
@@ -800,7 +856,6 @@ describe("RoomService", () => {
   it("同一员工的两个任务严格串行，不同员工之间仍可并行", async () => {
     const harness = await makeHarness();
     const { roomId, coder, reviewer } = await seedTeam(harness);
-    await harness.config.update({ scheduler: { maxConcurrentRuns: 4 } });
     harness.setBehavior(() => ({ text: "干完了", delayMs: 120 }));
 
     await harness.service.submitHumanMessage(roomId, "@小码 第一件");
@@ -1378,17 +1433,17 @@ describe("运行可见性：用户必须看得出员工在不在干活", () => {
   it("还没轮到跑的运行能查到排队位置，开跑之后位置消失", async () => {
     const harness = await makeHarness();
     const { roomId } = await seedTeam(harness);
-    await harness.config.update({ scheduler: { maxConcurrentRuns: 1 } });
     harness.setBehavior(() => ({ text: "干完了", delayMs: 250 }));
 
-    await harness.service.submitHumanMessage(roomId, "@all 各自干活");
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    // 同一个人的两件事：第二件必须等第一件跑完，这里量的就是它的排队状态
+    await harness.service.submitHumanMessage(roomId, "@小码 第一件");
+    await harness.service.submitHumanMessage(roomId, "@小码 第二件");
 
     const busy = harness.service.snapshotRuns();
     expect(busy.filter((trace) => trace.status === "running")).toHaveLength(1);
     const waiting = busy.find((trace) => trace.status === "queued");
     expect(waiting?.position).toBe(1);
-    expect(waiting?.trigger).toBe("@all 各自干活");
+    expect(waiting?.trigger).toBe("@小码 第二件");
 
     await harness.service.waitForIdle();
     expect(harness.service.snapshotRuns().every((trace) => trace.status === "done")).toBe(true);

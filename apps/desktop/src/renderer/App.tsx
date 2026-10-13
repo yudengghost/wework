@@ -426,6 +426,10 @@ export function App() {
               await api.setRoomMember(selectedRoom.id, employeeId, false);
               await reload();
             }}
+            onSaveRules={async (rules) => {
+              await api.updateRoom(selectedRoom.id, { systemPrompt: rules });
+              await reload();
+            }}
             onDeleteRoom={() =>
               setConfirmDelete({
                 id: selectedRoom.id,

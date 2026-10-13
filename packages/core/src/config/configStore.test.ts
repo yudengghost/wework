@@ -43,7 +43,7 @@ describe("ConfigStore.load", () => {
     const config = await store.load();
 
     expect(config.policy.employeeMentionsAll).toBe("auto");
-    expect(config.scheduler.maxConcurrentRuns).toBe(3);
+    expect(config.scheduler.maxMentionDepth).toBe(3);
   });
 
   it("非法 JSON 抛出 DataParseError 而不是静默重置", async () => {
@@ -53,7 +53,7 @@ describe("ConfigStore.load", () => {
   });
 
   it("字段校验失败抛出 DataParseError", async () => {
-    await writeFile(filePath, JSON.stringify({ scheduler: { maxConcurrentRuns: -1 } }), "utf8");
+    await writeFile(filePath, JSON.stringify({ scheduler: { maxMentionDepth: -1 } }), "utf8");
 
     await expect(makeStore().load()).rejects.toBeInstanceOf(DataParseError);
   });
@@ -72,8 +72,9 @@ describe("ConfigStore.load", () => {
 
     const config = await makeStore().load();
 
-    expect(config.scheduler.maxConcurrentRuns).toBe(3);
+    expect(config.scheduler.maxMentionDepth).toBe(3);
     expect("maxEmployeeCreationsPerRoom" in config.scheduler).toBe(false);
+    expect("maxConcurrentRuns" in config.scheduler).toBe(false);
   });
 });
 
@@ -108,10 +109,10 @@ describe("ConfigStore.get / update", () => {
     await store.load();
 
     await expect(
-      store.update({ scheduler: { maxConcurrentRuns: 0 as unknown as number } }),
+      store.update({ scheduler: { maxRunsPerTurn: 0 as unknown as number } }),
     ).rejects.toBeTruthy();
 
-    expect(store.get().scheduler.maxConcurrentRuns).toBe(3);
+    expect(store.get().scheduler.maxRunsPerTurn).toBe(5);
   });
 
   it("落盘后目录里没有残留临时文件", async () => {

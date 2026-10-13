@@ -9,7 +9,6 @@ export const launcherSettingsSchema = z.object({
 export type LauncherSettings = z.infer<typeof launcherSettingsSchema>;
 
 export const schedulerSettingsSchema = z.object({
-  maxConcurrentRuns: z.number().int().positive().default(3),
   maxRunsPerTurn: z.number().int().positive().default(5),
   maxMentionDepth: z.number().int().nonnegative().default(3),
   dedupeWindowMs: z.number().int().nonnegative().default(5000),

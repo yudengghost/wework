@@ -533,6 +533,34 @@ code {
   margin-top: 1px;
 }
 
+/* 群规入口：没设置时是低调的描边小按钮，设置了才染上品牌蓝。 */
+.room-rules-btn {
+  flex: none;
+  font-size: 12.5px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+}
+
+.room-rules-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.room-rules-btn.on {
+  border-color: color-mix(in srgb, var(--blue) 40%, transparent);
+  background: var(--blue-bg);
+  color: var(--blue-ink);
+}
+
+.room-rules {
+  flex: none;
+  padding: 10px 18px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
 .live-badge {
   display: inline-flex;
   align-items: center;
@@ -1030,6 +1058,16 @@ code {
   padding-bottom: 14px;
 }
 
+/* 运行中的那几行：不进虚拟列表，浏览器按正常文档流排布，
+   所以无论内容怎么长高都不会和相邻行叠在一起。 */
+.activity-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: none;
+  padding-top: 14px;
+}
+
 .toasts {
   position: fixed;
   right: 20px;
@@ -1317,6 +1355,11 @@ code {
   margin-top: 6px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  /* 实时预览是「正在写什么」的窗口，不是正文：限高内滚。
+     不限高时，一段长思考会把这一行撑到几千像素，把后面的行挤出可视区。 */
+  max-height: 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .live-badge .run-clock {
