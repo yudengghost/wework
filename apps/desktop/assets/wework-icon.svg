@@ -1,0 +1,23 @@
+<!--
+  Wework 标识：一个「W」加一条底座组成的皇冠轮廓。
+
+  - 只用描边，不用填充，所以整个图形天然是「外粗线、内中空」；
+  - W 的三个尖是三处皇冠的峰，两个谷是峰之间的凹陷；
+  - 底座宽度与 W 的横向跨度一致，两者之间留一点间隙。
+
+  viewBox 由 scripts/build-icon.mjs 按实测外接框校正成正方形，改坐标后重跑该脚本即可。
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="5.625 7.25 52.75 52.75"
+  width="64"
+  height="64"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="5"
+  stroke-linecap="butt"
+  stroke-linejoin="miter"
+>
+  <polyline points="8 13 21 36 32 13 43 36 56 13" />
+  <rect x="8.25" y="47.5" width="47.5" height="10" />
+</svg>

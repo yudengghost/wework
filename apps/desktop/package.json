@@ -1,13 +1,14 @@
 {
   "name": "@buddy/desktop",
   "version": "0.1.0",
-  "productName": "Buddy",
-  "author": "Buddy",
+  "productName": "Wework",
+  "author": "Wework",
   "private": true,
   "type": "module",
   "main": "dist/main/main.cjs",
   "scripts": {
     "build": "node build.mjs",
+    "icon": "electron scripts/build-icon.mjs",
     "start": "npm run build && electron .",
     "package": "npm run build && node package.mjs",
     "test": "vitest run",

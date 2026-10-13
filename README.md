@@ -1,4 +1,4 @@
-# Buddy
+# Wework
 
 本地多 Agent 协作桌面应用。创建多个「Agent 员工」，在应用内自建的房间里跟它们单聊或群聊，用 `@` 指派任务；员工是真实具备执行能力的 agent（读写文件、跑命令），不只是对话。
 
@@ -16,10 +16,10 @@ npm install          # 首次
 npm run app          # 构建并启动
 ```
 
-或者直接双击仓库根目录的 `Buddy.cmd`。
+或者直接双击仓库根目录的 `Wework.cmd`。
 
 > **关于 Electron 运行时**：npm 11 默认会拦截依赖的安装脚本，导致 Electron 的二进制没被解开，
-> 表现为启动时报找不到 Electron。`Buddy.cmd` 会自动检测并从本地缓存补上这一步；
+> 表现为启动时报找不到 Electron。`Wework.cmd` 会自动检测并从本地缓存补上这一步；
 > 如果你用 `npm run app` 直接启动，遇到该问题时手动执行一次：
 > `node node_modules/electron/install.js`
 
@@ -65,7 +65,7 @@ $env:BUDDY_LIVE_TESTS="1"; npm run test -w @buddy/core   # 真机联调（会真
 
 - 自己的技能放在数据目录的 `skills\<名称>\SKILL.md`，也可以在设置里添加额外的技能根目录。
 - 默认**同时扫描框架自带的技能目录**（`~/.codex/skills`、`~/.agents/skills`、`~/.claude/skills`），所以 Codex / Claude Code 里已有的技能可以直接复用，不用再抄一份。
-- 在「员工管理」里为每个员工**勾选**要启用的技能；同名技能以 Buddy 自己的目录为准。
+- 在「员工管理」里为每个员工**勾选**要启用的技能；同名技能以 Wework 自己的目录为准。
 - 运行时会把已启用技能的 SKILL.md 路径写进提示词，由员工在任务匹配时按需读取（渐进式披露），不占上下文。
 
 ## 行为与安全
@@ -87,7 +87,7 @@ $env:BUDDY_LIVE_TESTS="1"; npm run test -w @buddy/core   # 真机联调（会真
 
 - 「停止全部」立刻中止所有排队与运行中的员工。每次运行都用 `AbortSignal` + 杀进程树，不会留下野进程。
 - 权限按员工配置，映射到各框架原生机制：Codex 用 `--sandbox read-only|workspace-write|danger-full-access`，Claude 用 `--permission-mode manual|acceptEdits|bypassPermissions`。
-- 员工默认在**自己的工作目录**里干活（`%APPDATA%\Buddy\data\workspaces\<员工名>`），不会动你的代码仓库，除非你把工作目录指过去。
+- 员工默认在**自己的工作目录**里干活（`%APPDATA%\Wework\data\workspaces\<员工名>`），不会动你的代码仓库，除非你把工作目录指过去。
 - 员工**可以同名**（内部用 id 区分，工作目录也会自动错开）。但同一个房间里如果有两位同名员工，`@这个名字` 不会被投递给任何人——房间会写明是哪些人撞了名字，改名或只留一位即可恢复。
 - 员工申请招人时，如果申请里写了工作目录，审批卡片会把那个目录一起显示出来，看清楚再点「批准招人」。
 - 内置兜底员工的 API Key 存在**系统安全存储**里（Windows 用 DPAPI 加密，落在数据目录的 `secrets.json`），不进 `config.json`、不会被发到界面，界面上只显示「已设置 / 未设置」。系统不支持安全存储时会拒绝保存，而不是退化成明文。
@@ -97,7 +97,7 @@ $env:BUDDY_LIVE_TESTS="1"; npm run test -w @buddy/core   # 真机联调（会真
 ## 数据位置
 
 ```
-%APPDATA%\Buddy\data\        （可在设置里改到别处，需重启生效）
+%APPDATA%\Wework\data\       （可在设置里改到别处，需重启生效）
   config.json          全局配置（永远留在默认位置，避免改坏目录后找不到配置）
   secrets.json         加密后的密钥（与 config.json 同级，同样是默认位置）
   employees.json       员工档案
@@ -107,6 +107,8 @@ $env:BUDDY_LIVE_TESTS="1"; npm run test -w @buddy/core   # 真机联调（会真
   skills\<技能名>\SKILL.md        自己的技能
   memory\<员工id>.jsonl           员工记忆
 ```
+
+从旧名字 Buddy 升上来的版本，首次启动会把 `%APPDATA%\Buddy\data` 整份拷到新目录（老目录保留，确认无误后可自行删除），员工、房间与记忆都不会丢。
 
 想把数据放到别处：设置 → 数据位置，填好点「保存数据目录并重启」。
 也可以用环境变量一次性指定（便于做绿色版）：`set BUDDY_DATA_DIR=E:\BuddyData`。
@@ -135,4 +137,4 @@ docs/superpowers/      设计文档与实施计划
 - Codex 在 print 模式下不产出 token 级增量，房间里是**逐条**刷新而不是逐字。
 - Claude 的工具调用事件形状按 Anthropic content block 约定实现，本机未捕获到实例。
 - 员工职责（人设）当前与提示词一起从 stdin 投递，而不是框架原生的 system prompt 通道。
-- 尚未打包成安装程序。目前通过 `npm run app` / `Buddy.cmd` 启动。
+- 没有安装程序。目前是绿色版：`npm run package` 产出 `apps\desktop\release\Wework-win32-x64\Wework.exe`，双击即用；开发时用 `npm run app` / `Wework.cmd` 启动。

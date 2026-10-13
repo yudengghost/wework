@@ -1,4 +1,4 @@
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { BrowserWindow, app } from "electron";
@@ -23,12 +23,16 @@ function trace(line: string): void {
 }
 
 async function createWindow(): Promise<void> {
+  // 运行时的窗口 / 任务栏图标。打包时同一份 PNG 还会被写进 exe 的资源里，
+  // 这样资源管理器里看到的也是它，而不是 Electron 的默认图标。
+  const iconPath = join(__dirname, "..", "..", "assets", "icons", "wework-256.png");
   window = new BrowserWindow({
     width: 1240,
     height: 820,
     minWidth: 940,
     minHeight: 620,
-    title: "Buddy",
+    title: "Wework",
+    ...(existsSync(iconPath) ? { icon: iconPath } : {}),
     // 与渲染层的米色底一致：窗口出现到首帧之间不闪一下深色
     backgroundColor: "#f7f6f3",
     autoHideMenuBar: true,
@@ -175,6 +179,9 @@ void app
   .then(async () => {
     const services = await createServices();
     trace(`services: ready dataDir=${services.dataDir}`);
+    if (services.migratedFrom) {
+      trace(`services: 已从 ${services.migratedFrom} 迁移（原目录保留，可自行删除）`);
+    }
     registerIpc(services, () => window);
     await createWindow();
 

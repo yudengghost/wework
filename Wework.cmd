@@ -26,7 +26,7 @@ if not exist "node_modules\electron\dist\electron.exe" (
   )
 )
 
-echo 正在启动 Buddy...
+echo 正在启动 Wework...
 call npm run app
 if errorlevel 1 goto :failed
 exit /b 0

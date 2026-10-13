@@ -33,7 +33,7 @@ export function createRosterFileWriter(fileName = "roster.json"): RosterWriter {
       await writeFile(join(dirname(path), ".gitignore"), "*\n", "utf8");
       const payload = {
         generatedAt: new Date().toISOString(),
-        note: "本文件由 Buddy 自动生成，每次运行前刷新；请勿手工编辑。",
+        note: "本文件由 Wework 自动生成，每次运行前刷新；请勿手工编辑。",
         employees: entries,
       };
       await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");

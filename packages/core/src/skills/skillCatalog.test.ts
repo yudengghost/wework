@@ -19,7 +19,7 @@ const skillDoc = (name: string, description: string) =>
   `---\nname: ${name}\ndescription: ${description}\n---\n\n正文\n`;
 
 describe("catalogSkills", () => {
-  it("扫描 Buddy 自己的技能目录并解析 frontmatter", async () => {
+  it("扫描 Wework 自己的技能目录并解析 frontmatter", async () => {
     const skills = await catalogSkills({
       dataDir: "D:/data",
       env: {},
@@ -71,7 +71,7 @@ describe("catalogSkills", () => {
     expect(skills).toEqual([]);
   });
 
-  it("同名时 Buddy 目录优先，不会被框架覆盖", async () => {
+  it("同名时 Wework 目录优先，不会被框架覆盖", async () => {
     const skills = await catalogSkills({
       dataDir: "D:/data",
       env: { USERPROFILE: "C:/Users/me" },
@@ -104,7 +104,7 @@ describe("catalogSkills", () => {
     expect(skills).toEqual([]);
   });
 
-  it("extraRoots 里的技能也算 Buddy 自己的", async () => {
+  it("extraRoots 里的技能也算 Wework 自己的", async () => {
     const skills = await catalogSkills({
       dataDir: "D:/data",
       extraRoots: ["E:/my-skills"],

@@ -21,6 +21,7 @@ import {
   SparkIcon,
   StopIcon,
   UsersIcon,
+  WeworkMark,
 } from "./ui";
 
 type Panel = "none" | "employees" | "settings";
@@ -226,10 +227,10 @@ export function App() {
       <aside className="sidebar">
         <div className="app-header">
           <div className="mark">
-            <SparkIcon size={16} />
+            <WeworkMark size={19} />
           </div>
           <div style={{ minWidth: 0 }}>
-            <h1>Buddy</h1>
+            <h1>Wework</h1>
             <div className="meta">
               {boot.employees.length} 名员工
               {streamingIds.length > 0 ? " · 有员工在工作中" : ""}
@@ -389,9 +390,9 @@ export function App() {
           <div className="home">
             <div className="home-hero">
               <div className="mark lg">
-                <SparkIcon size={22} />
+                <WeworkMark size={28} />
               </div>
-              <h2>Buddy</h2>
+              <h2>Wework</h2>
               <p>
                 本地多 Agent 协作。这里的员工是真正会干活的 agent——能读写文件、执行命令，
                 各有一位独立的长期记忆。

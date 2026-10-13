@@ -78,7 +78,7 @@ export interface CatalogSkillsOptions {
 
 /**
  * 扫描所有技能根目录，每个含 SKILL.md 的子目录算一个技能。
- * 同名技能以 Buddy 自己的目录为准，避免被框架里的同名技能覆盖。
+ * 同名技能以 Wework 自己的目录为准，避免被框架里的同名技能覆盖。
  */
 export async function catalogSkills(options: CatalogSkillsOptions): Promise<SkillInfo[]> {
   const fs = options.fs ?? createSystemSkillFileSystem();

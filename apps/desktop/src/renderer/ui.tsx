@@ -1,5 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 
+import { weworkBrand } from "./brand";
+
 /**
  * 内联 SVG 图标集：不引第三方图标库，统一 1.7px 描边 + 圆头，跟着 currentColor 走。
  */
@@ -65,6 +67,28 @@ export const SparkIcon = ({ size = 17 }: IconProps) => (
   <svg {...base(size)}>
     <path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9Z" />
     <path d="M18.5 16.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7Z" />
+  </svg>
+);
+
+/**
+ * Wework 标识：一个「W」加一条等宽底座组成的皇冠，只用描边所以内里是中空的。
+ * 几何来自 brand.ts，与 assets/wework-icon.svg 同源。
+ */
+export const WeworkMark = ({ size = 18 }: IconProps) => (
+  <svg
+    {...base(size)}
+    viewBox={weworkBrand.viewBox}
+    strokeWidth={weworkBrand.strokeWidth}
+    strokeLinecap="butt"
+    strokeLinejoin="miter"
+  >
+    <polyline points={weworkBrand.points} />
+    <rect
+      x={weworkBrand.base.x}
+      y={weworkBrand.base.y}
+      width={weworkBrand.base.width}
+      height={weworkBrand.base.height}
+    />
   </svg>
 );
 
