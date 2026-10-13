@@ -9,6 +9,11 @@ export const employeeDraftSchema = z.object({
   model: z.string().min(1).max(120).optional(),
   systemPrompt: z.string().max(4000).optional(),
   skills: z.array(z.string()).max(64).optional(),
+  /**
+   * HR 自己从网上找来、已经下载到它工作目录里的技能：写相对路径，指向含 SKILL.md 的目录。
+   * 批准后由应用装进技能目录，并自动给新同事启用。
+   */
+  installSkills: z.array(z.string().min(1).max(200)).max(8).optional(),
   permissionMode: permissionModeSchema.optional(),
   workspaceDir: z.string().min(1).max(400).optional(),
 });

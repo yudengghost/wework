@@ -57,7 +57,8 @@ export function frameworkSkillRoots(env: Record<string, string | undefined>): st
   ];
 }
 
-function pickFrontmatter(raw: string): { name?: string; description?: string } {
+/** 读 SKILL.md 头部的 frontmatter（name / description）。装技能时也用它做校验。 */
+export function readSkillFrontmatter(raw: string): { name?: string; description?: string } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw);
   const body = match?.[1];
   if (body === undefined) return {};
@@ -103,7 +104,7 @@ export async function catalogSkills(options: CatalogSkillsOptions): Promise<Skil
       if (byId.has(id)) continue;
 
       const raw = (await fs.readFile(entryPath)) ?? "";
-      const front = pickFrontmatter(raw);
+      const front = readSkillFrontmatter(raw);
       byId.set(id, {
         id,
         name: front.name ?? id,

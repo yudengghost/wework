@@ -336,6 +336,14 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
                   runGuarded(api.updateEmployee(employee.id, { canHire: value }).then(onChanged));
                 }}
               />
+              <Switch
+                label="允许联网（搜索 / 下载技能）"
+                hint="只放开网络，文件写入仍然只在它自己的工作目录里；需要「可写工作目录」权限"
+                checked={employee.permissions.network}
+                onChange={(value) => {
+                  runGuarded(api.updateEmployee(employee.id, { network: value }).then(onChanged));
+                }}
+              />
             {boot.skills.length > 0 && (
               <div className="field" style={{ marginBottom: 0 }}>
                 <label>

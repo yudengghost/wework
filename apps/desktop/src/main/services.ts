@@ -17,6 +17,7 @@ import {
   catalogSkills,
   createSystemSkillFileSystem,
   createSystemEnvironment,
+  installSkillsFromWorkspace,
   resolveLauncher,
   catalogSkills as scanSkills,
   type AdapterCreation,
@@ -26,6 +27,7 @@ import {
   type PermissionMode,
   type SkillInfo,
   type SkillsSettings,
+  type EmployeeCreateContext,
 } from "@wework/core";
 import { app, safeStorage } from "electron";
 
@@ -166,7 +168,8 @@ export async function createServices(): Promise<AppServices> {
     prompts,
     attachments,
     // 员工申请招人时也走这个入口，与界面创建行为完全一致。
-    createEmployee: (draft) => createEmployeeFromDraft({ dataDir, employees }, draft),
+    createEmployee: (draft, context) =>
+      createEmployeeFromDraft({ dataDir, employees }, draft, context),
     rosterFile: createRosterFileWriter(),
     skillsFor: async (employee: Employee) => {
       const catalog = await loadSkillCatalog(dataDir, config.get().skills);
@@ -275,8 +278,11 @@ export interface EmployeeDraftInput {
   model?: string;
   systemPrompt?: string;
   skills?: string[];
+  /** 需要先从发起人工作目录搬进技能目录的技能（相对路径）。 */
+  installSkills?: string[];
   permissionMode?: PermissionMode;
   canHire?: boolean;
+  network?: boolean;
   workspaceDir?: string;
   stateDir?: string;
 }
@@ -288,7 +294,8 @@ export interface EmployeeDraftInput {
 export async function createEmployeeFromDraft(
   deps: { dataDir: string; employees: EmployeeStore },
   draft: EmployeeDraftInput,
-): Promise<{ ok: true; employee: Employee } | { ok: false; reason: string }> {
+  context: EmployeeCreateContext = {},
+): Promise<{ ok: true; employee: Employee; notes?: string[] } | { ok: false; reason: string }> {
   try {
     const displayName = draft.displayName.trim();
     const takenDirs = deps.employees.list().map((item) => item.workspaceDir);
@@ -300,6 +307,14 @@ export async function createEmployeeFromDraft(
     await ensureDir(workspaceDir);
     await ensureDir(stateDir);
 
+    // 先把申请里"我下载好的技能"装进技能目录：装完才建人，技能列表才拿得到新 id。
+    const install = await installSkillsFromWorkspace({
+      dataDir: deps.dataDir,
+      requesterWorkspaceDir: context.requesterWorkspaceDir,
+      sources: draft.installSkills ?? [],
+    });
+    if (install.installed.length > 0) skillCache = null;
+
     const employee = await deps.employees.create({
       displayName,
       framework: draft.framework,
@@ -307,16 +322,28 @@ export async function createEmployeeFromDraft(
       stateDir,
       model: draft.model?.trim() ? draft.model.trim() : undefined,
       systemPrompt: draft.systemPrompt?.trim() ? draft.systemPrompt : undefined,
-      skills: draft.skills ?? [],
+      // 去重：HR 常常既在 skills 里写了 id，又用 installSkills 指了同一份下载目录。
+      skills: [...new Set([...(draft.skills ?? []), ...install.installed, ...install.reused])],
       canHire: draft.canHire ?? false,
       permissions: {
         mode: draft.permissionMode ?? "workspace-write",
+        network: draft.network ?? false,
         allowedTools: [],
         disallowedTools: [],
         requireApprovalFor: [],
       },
     });
-    return { ok: true, employee };
+
+    const notes = [
+      ...install.installed.map(
+        (id) => `已把新技能「${id}」装进技能目录，并给「${employee.displayName}」启用。`,
+      ),
+      ...install.reused.map(
+        (id) => `技能「${id}」本机已经有了，直接沿用了现成的那份（没有覆盖）。`,
+      ),
+      ...install.failed.map((item) => `技能没装上「${item.source}」：${item.reason}`),
+    ];
+    return { ok: true, employee, ...(notes.length === 0 ? {} : { notes }) };
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   }

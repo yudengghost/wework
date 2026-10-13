@@ -47,6 +47,7 @@ function request(overrides: Partial<AgentRunRequest> = {}): AgentRunRequest {
     cwd: workDir,
     permissions: {
       mode: "workspace-write",
+      network: false,
       allowedTools: [],
       disallowedTools: [],
       requireApprovalFor: [],

@@ -27,9 +27,16 @@ export function buildCodexArgs(request: AgentRunRequest): string[] {
   // --skip-git-repo-check 是必需项而非可选项：员工工作目录默认是
   // <userData>/workspaces/<employeeId>，不在 git 仓库内，不带该标志时 codex 会以
   // "Not inside a trusted directory" 直接失败退出（本机实测）。
+  //
+  // 允许联网时用 -c 覆盖沙箱配置里的 network_access：本机实测
+  // `--sandbox workspace-write -c sandbox_workspace_write.network_access=true` 能联网，
+  // 而文件写入照旧被限制在工作目录里。read-only 沙箱没有对应的开关，所以那种组合不生效。
+  const network =
+    request.permissions.network === true && request.permissions.mode === "workspace-write";
   const shared = [
     "--json",
     "--skip-git-repo-check",
+    ...(network ? ["-c", "sandbox_workspace_write.network_access=true"] : []),
     ...(request.model ? ["-m", request.model] : []),
     // 图片走 Codex 原生的 --image（比"给你个路径自己去读"质量好得多）。
     // 路径由我们自己生成、位于员工工作目录内，不含 cmd 会改写的字符，因此可以放进 argv。

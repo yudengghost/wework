@@ -57,6 +57,7 @@ describe.skipIf(!liveEnabled)("真实 Codex CLI 联调", () => {
         cwd: workDir,
         permissions: {
           mode: "read-only",
+          network: false,
           allowedTools: [],
           disallowedTools: [],
           requireApprovalFor: [],

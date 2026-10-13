@@ -82,6 +82,7 @@ export function makeEmployee(patch: Partial<Employee> = {}): Employee {
     canHire: false,
     permissions: {
       mode: "workspace-write",
+      network: false,
       allowedTools: [],
       disallowedTools: [],
       requireApprovalFor: [],

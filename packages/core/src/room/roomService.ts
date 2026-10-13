@@ -36,6 +36,11 @@ export interface RoomServiceEvents extends Record<string, unknown> {
   };
 }
 
+/** 创建员工时的上下文：申请由谁发起——它下载好的技能就在发起人的工作目录里。 */
+export interface EmployeeCreateContext {
+  requesterWorkspaceDir?: string;
+}
+
 export interface RoomServiceDeps {
   config: ConfigStore;
   employees: EmployeeStore;
@@ -49,7 +54,10 @@ export interface RoomServiceDeps {
   /** 应用层提供的"创建员工"能力；不传则员工不能申请招人。 */
   createEmployee?: (
     draft: EmployeeDraft,
-  ) => Promise<{ ok: true; employee: Employee } | { ok: false; reason: string }>;
+    context: EmployeeCreateContext,
+  ) => Promise<
+    { ok: true; employee: Employee; notes?: string[] } | { ok: false; reason: string }
+  >;
   /** 名册文件写入器；不传则名册只给摘要、不给完整人设的入口。 */
   rosterFile?: RosterWriter;
   /** 面向模型的文案；不传则用内置默认值。 */
@@ -397,7 +405,12 @@ export class RoomService {
       return;
     }
 
-    const result = await create(draft);
+    // 发起人的工作目录要一起交出去：申请里可能带着「我下载好的技能」的相对路径。
+    const result = await create(draft, { requesterWorkspaceDir: requester?.workspaceDir });
+    const notes = result.ok ? (result.notes ?? []) : [];
+    for (const note of notes) {
+      await this.appendSystemMessage(pending.roomId, note);
+    }
     await this.appendSystemMessage(
       pending.roomId,
       result.ok

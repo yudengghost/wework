@@ -60,6 +60,8 @@ export interface ApprovalEvent {
     systemPrompt?: string;
     /** 员工自己提出、由用户批准后才会被采用的技能。 */
     skills?: string[];
+    /** 员工下载到自己工作目录里、批准后由应用装进技能目录的技能（相对路径）。 */
+    installSkills?: string[];
     permissionMode?: string;
     /** 员工自己提出、由用户批准后才会被采用的工作目录。 */
     workspaceDir?: string;
@@ -76,6 +78,8 @@ export interface CreateEmployeePayload {
   skills?: string[];
   permissionMode: PermissionMode;
   canHire?: boolean;
+  /** 允许联网（搜索 / 下载）。文件写入仍限制在它自己的工作目录内。 */
+  network?: boolean;
 }
 
 interface WeworkBridge {

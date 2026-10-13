@@ -17,7 +17,11 @@ import type { RosterEntry } from "./rosterFile";
 import { FileStore } from "../storage/fileStore";
 import { CursorStore } from "./cursorStore";
 import { MessageLog } from "./messageLog";
-import { RoomService, type RoomServiceEvents } from "./roomService";
+import {
+  RoomService,
+  type EmployeeCreateContext,
+  type RoomServiceEvents,
+} from "./roomService";
 import { RoomStore } from "./roomStore";
 
 interface Call {
@@ -40,6 +44,8 @@ interface Harness {
   cursors: CursorStore;
   memory: MemoryStore;
   hires: EmployeeDraft[];
+  hireContexts: EmployeeCreateContext[];
+  setHireNotes: (notes: string[]) => void;
   rosterWrites: RosterEntry[][];
   setSkills: (value: SkillInfo[]) => void;
   /** 招人时给 HR 看的技能目录；传 "error" 模拟目录读不出来。 */
@@ -80,6 +86,8 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
 
   const calls: Call[] = [];
   const hires: EmployeeDraft[] = [];
+  const hireContexts: EmployeeCreateContext[] = [];
+  let hireNotes: string[] = [];
   const rosterWrites: RosterEntry[][] = [];
   const replies = new Map<string, string>();
   let behavior: Behavior =
@@ -159,8 +167,10 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     events,
     memory,
     cursors,
-    createEmployee: async (draft) => {
+    // 招人时应用还会收到"发起人工作目录"与可选的回执说明——这里把它们记下来供断言。
+    createEmployee: async (draft, context) => {
       hires.push(draft);
+      hireContexts.push(context);
       const employee = await employees.create({
         displayName: draft.displayName,
         framework: draft.framework,
@@ -171,7 +181,9 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
         permissions: { mode: draft.permissionMode ?? "workspace-write" },
         skills: draft.skills ?? [],
       });
-      return { ok: true, employee };
+      return hireNotes.length === 0
+        ? { ok: true, employee }
+        : { ok: true, employee, notes: hireNotes };
     },
     rosterFile: {
       write: async (_dir, entries) => {
@@ -198,6 +210,10 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     rooms,
     calls,
     hires,
+    hireContexts,
+    setHireNotes: (notes) => {
+      hireNotes = notes;
+    },
     rosterWrites,
     events,
     replies,
@@ -997,6 +1013,34 @@ describe("RoomService", () => {
     expect(approvals[0]?.skillsUnknown).toBeUndefined();
     const transcript = await harness.service.listMessages(roomId);
     expect(transcript.some((message) => message.body.includes("不会生效"))).toBe(false);
+  });
+
+  it("申请里带「下载好的技能」时：申请原样进审批，创建时把发起人工作目录一并交出，回执写回房间", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder } = await seedTeam(harness);
+    harness.setHireNotes(["已把新技能「docx-zh」装进技能目录，并给「文档专员」启用。"]);
+    harness.setBehavior(() => ({
+      text: hireBlock(
+        '{"displayName":"文档专员","framework":"codex","installSkills":[".wework/skills/docx-zh"]}',
+      ),
+    }));
+    const approvals: { approvalId: string; draft?: EmployeeDraft }[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招个写文档的，技能你去网上找");
+    await harness.service.waitForIdle();
+
+    expect(approvals[0]?.draft?.installSkills).toEqual([".wework/skills/docx-zh"]);
+
+    await harness.service.resolveApproval(approvals[0]?.approvalId as string, true);
+    await harness.service.waitForIdle();
+
+    // 装技能要以发起人的工作目录为根：应用必须拿到它，否则相对路径无从解析
+    expect(harness.hireContexts[0]?.requesterWorkspaceDir).toBe(coder.workspaceDir);
+    const transcript = await harness.service.listMessages(roomId);
+    expect(transcript.some((message) => message.body.includes("已把新技能「docx-zh」装进"))).toBe(
+      true,
+    );
   });
 
   it("拒绝则什么都不发生", async () => {

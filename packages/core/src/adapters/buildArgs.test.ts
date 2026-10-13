@@ -10,6 +10,7 @@ function request(overrides: Partial<AgentRunRequest> = {}): AgentRunRequest {
     cwd: "C:/work/employee",
     permissions: {
       mode: "workspace-write",
+      network: false,
       allowedTools: [],
       disallowedTools: [],
       requireApprovalFor: [],
@@ -44,6 +45,7 @@ describe("buildCodexArgs", () => {
         request({
           permissions: {
             mode,
+            network: false,
             allowedTools: [],
             disallowedTools: [],
             requireApprovalFor: [],
@@ -54,6 +56,28 @@ describe("buildCodexArgs", () => {
     });
 
     expect(sandboxes).toEqual(["read-only", "workspace-write", "danger-full-access"]);
+  });
+
+  it("允许联网时只加 sandbox_workspace_write.network_access，不动文件沙箱", () => {
+    const online = buildCodexArgs(
+      request({
+        permissions: {
+          mode: "workspace-write",
+          network: true,
+          allowedTools: [],
+          disallowedTools: [],
+          requireApprovalFor: [],
+        },
+      }),
+    );
+
+    expect(online).toContain("sandbox_workspace_write.network_access=true");
+    expect(online).toContain("--sandbox");
+    expect(online[online.indexOf("--sandbox") + 1]).toBe("workspace-write");
+    // 没开联网时不该出现这个覆盖项
+    expect(buildCodexArgs(request())).not.toContain(
+      "sandbox_workspace_write.network_access=true",
+    );
   });
 
   it("续接会话走 exec resume，且不重复传 --sandbox", () => {
@@ -101,6 +125,7 @@ describe("buildClaudeArgs", () => {
         request({
           permissions: {
             mode,
+            network: false,
             allowedTools: [],
             disallowedTools: [],
             requireApprovalFor: [],
@@ -118,6 +143,7 @@ describe("buildClaudeArgs", () => {
       request({
         permissions: {
           mode: "workspace-write",
+          network: false,
           allowedTools: ["Bash(git *)", "Edit"],
           disallowedTools: ["WebFetch"],
           requireApprovalFor: [],

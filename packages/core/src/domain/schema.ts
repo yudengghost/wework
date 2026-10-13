@@ -13,6 +13,11 @@ export const isoDateTimeSchema = z.string().min(1);
 
 export const permissionPolicySchema = z.object({
   mode: permissionModeSchema,
+  /**
+   * 允许联网：员工可以搜索、下载（例如 HR 去网上找技能）。
+   * 只放开网络，文件写入仍然限制在工作目录内（Codex 的 workspace-write 沙箱实测支持这种组合）。
+   */
+  network: z.boolean().default(false),
   allowedTools: z.array(z.string()).default([]),
   disallowedTools: z.array(z.string()).default([]),
   requireApprovalFor: z.array(z.string()).default([]),

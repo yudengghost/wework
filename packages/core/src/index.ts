@@ -29,5 +29,6 @@ export * from "./room/rosterFile";
 export * from "./room/roomService";
 export * from "./memory/memoryStore";
 export * from "./skills/skillCatalog";
+export * from "./skills/skillInstall";
 export * from "./prompts/promptPack";
 export * from "./attachments/attachmentStore";

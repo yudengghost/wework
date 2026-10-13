@@ -29,6 +29,8 @@ export interface CreateEmployeePayload {
   permissionMode: PermissionMode;
   /** 是否允许这位员工申请招人（模拟 HR）。 */
   canHire?: boolean;
+  /** 允许联网（搜索 / 下载）。文件写入仍限制在它自己的工作目录内。 */
+  network?: boolean;
   workspaceDir?: string;
   stateDir?: string;
 }
@@ -139,8 +141,12 @@ export function registerIpc(
       if (patch.systemPrompt !== undefined) next.systemPrompt = patch.systemPrompt || undefined;
       if (patch.skills !== undefined) next.skills = patch.skills;
       if (patch.canHire !== undefined) next.canHire = patch.canHire;
-      if (patch.permissionMode !== undefined) {
-        next.permissions = { ...current.permissions, mode: patch.permissionMode };
+      if (patch.permissionMode !== undefined || patch.network !== undefined) {
+        next.permissions = {
+          ...current.permissions,
+          ...(patch.permissionMode === undefined ? {} : { mode: patch.permissionMode }),
+          ...(patch.network === undefined ? {} : { network: patch.network }),
+        };
       }
       return employees.update(id, next);
     },

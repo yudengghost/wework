@@ -9,11 +9,12 @@ import {
 } from "./schema";
 
 describe("permissionPolicySchema", () => {
-  it("只给 mode 时补全三个数组默认值", () => {
+  it("只给 mode 时补全联网开关与三个数组的默认值", () => {
     const policy = permissionPolicySchema.parse({ mode: "read-only" });
 
     expect(policy).toEqual({
       mode: "read-only",
+      network: false,
       allowedTools: [],
       disallowedTools: [],
       requireApprovalFor: [],

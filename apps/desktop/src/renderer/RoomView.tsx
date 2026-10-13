@@ -525,6 +525,12 @@ export function RoomView(props: RoomViewProps) {
             {approval.kind === "hire" && approval.draft?.systemPrompt && (
               <div className="why">拟任职责：{approval.draft.systemPrompt}</div>
             )}
+            {approval.kind === "hire" && (approval.draft?.installSkills?.length ?? 0) > 0 && (
+              <div className="why">
+                要安装的技能：{approval.draft?.installSkills?.join("、")}
+                （批准后由应用装进技能目录，并给新同事启用）
+              </div>
+            )}
             {approval.kind === "hire" && approval.draft?.workspaceDir && (
               <div className="why">拟用工作目录：{approval.draft.workspaceDir}</div>
             )}
