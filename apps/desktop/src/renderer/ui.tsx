@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 
 /**
  * 内联 SVG 图标集：不引第三方图标库，统一 1.7px 描边 + 圆头，跟着 currentColor 走。
@@ -108,6 +108,13 @@ export const FileIcon = ({ size = 15 }: IconProps) => (
   </svg>
 );
 
+/** 六点抓取手柄：两个点阵列，Notion 列表块的标志。 */
+export const GripIcon = ({ size = 16 }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2}>
+    <path d="M9 6.5h.01M9 12h.01M9 17.5h.01M15 6.5h.01M15 12h.01M15 17.5h.01" />
+  </svg>
+);
+
 /** 中文取前两字，拉丁按词取首字母，最多两位。 */
 export function initials(name: string): string {
   const trimmed = name.trim();
@@ -120,13 +127,27 @@ export function initials(name: string): string {
     .join("");
 }
 
-/** 由 id 稳定推导出一个色相，保证同一位员工/房间始终同色。 */
-export function tintFor(seed: string): string {
+/** Notion 标签色：浅底配深字，每组都满足 AA 对比度；刻意不用渐变。 */
+const TINTS = [
+  { bg: "#f1f1ef", ink: "#5a5955" }, // 灰
+  { bg: "#f3eeea", ink: "#6b4a2f" }, // 棕
+  { bg: "#fbebd9", ink: "#8a5a1f" }, // 橙
+  { bg: "#fbf3db", ink: "#6b5518" }, // 黄
+  { bg: "#edf3ec", ink: "#2f5e46" }, // 绿
+  { bg: "#e7f3f8", ink: "#1a5a75" }, // 蓝
+  { bg: "#f4f0f7", ink: "#5b4a72" }, // 紫
+  { bg: "#f9eef3", ink: "#7a4258" }, // 粉
+  { bg: "#fdebec", ink: "#8c3836" }, // 红
+] as const;
+
+/** 由 id 稳定推导出一组标签色，保证同一位员工/房间始终同色。 */
+export function tintFor(seed: string): CSSProperties {
   let hash = 7;
   for (const char of seed) {
-    hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 360;
+    hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 9973;
   }
-  return `linear-gradient(150deg, oklch(0.68 0.085 ${hash}), oklch(0.52 0.075 ${(hash + 34) % 360}))`;
+  const tint = TINTS[hash % TINTS.length] ?? TINTS[0];
+  return { background: tint.bg, color: tint.ink };
 }
 
 export function Avatar({
@@ -139,9 +160,21 @@ export function Avatar({
   small?: boolean;
 }) {
   return (
-    <div className={`avatar${small ? " sm" : ""}`} style={{ background: tintFor(seed) }} title={name}>
+    <div className={`avatar${small ? " sm" : ""}`} style={tintFor(seed)} title={name}>
       {initials(name)}
     </div>
+  );
+}
+
+/**
+ * Drag Handle Illusion：默认不可见，父级（列表项/卡片/消息行）悬停时才淡入。
+ * 只改 opacity，不参与布局，所以悬停时不会推动任何内容。
+ */
+export function DragHandle() {
+  return (
+    <span className="drag-handle" aria-hidden="true">
+      <GripIcon />
+    </span>
   );
 }
 
@@ -186,33 +219,6 @@ export function EmptyState({
       <div className="art">{icon}</div>
       <strong>{title}</strong>
       {children}
-    </div>
-  );
-}
-
-/** iOS 分段控件：用于主题这类互斥的少量选项。 */
-export function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-}: {
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div className="segmented" role="tablist">
-      {options.map((option) => (
-        <button
-          key={option.value}
-          role="tab"
-          aria-selected={option.value === value}
-          className={option.value === value ? "on" : ""}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
     </div>
   );
 }

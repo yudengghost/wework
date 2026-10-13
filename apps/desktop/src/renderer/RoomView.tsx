@@ -6,6 +6,7 @@ import { api, type ApprovalEvent } from "./api";
 import {
   AlertIcon,
   Avatar,
+  DragHandle,
   FileIcon,
   PaperclipIcon,
   PlusIcon,
@@ -131,6 +132,7 @@ const MessageRow = memo(function MessageRow({
 }: MessageRowProps) {
   return (
     <div className={`msg-row${mine ? " mine" : ""}`}>
+      <DragHandle />
       <Avatar name={mine ? "你" : who} seed={seed} small />
       <div className="msg-col">
         <div className="msg-head">
@@ -556,9 +558,7 @@ export function RoomView(props: RoomViewProps) {
                 setDraft((prev) => prev.replace(/@([^\s@]*)$/, "@all "));
               }}
             >
-              <span className="avatar sm" style={{ background: "var(--surface-3)" }}>
-                全
-              </span>
+              <span className="avatar sm">全</span>
               @all 全体成员
             </div>
           </div>

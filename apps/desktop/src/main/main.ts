@@ -29,7 +29,8 @@ async function createWindow(): Promise<void> {
     minWidth: 940,
     minHeight: 620,
     title: "Buddy",
-    backgroundColor: "#0f1115",
+    // 与渲染层的米色底一致：窗口出现到首帧之间不闪一下深色
+    backgroundColor: "#f7f6f3",
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, "..", "preload", "preload.cjs"),

@@ -43,16 +43,28 @@ Notion Style 文档风视觉系统。
 | 分隔边框 | `#e9e9e7` |
 | 强边框 | `#d3d1cb` |
 | 正文主色 | `#37352f` |
-| 正文辅色 | `#787774` |
-| 正文弱化 | `#9b9a97` |
+| 正文辅色 | `#5f5e5a` |
+| 正文弱化 | `#6f6e69` |
 | 悬停底（Block Highlighting） | `#efedea` |
 | 按下底（Micro-click） | `#e3e1db` |
-| 蓝 / 红 / 绿 / 黄 | `#2eaadc` / `#eb5757` / `#0f7b6c` / `#dfab01` |
+| 品牌蓝（焦点环、描边、选中态） | `#2eaadc` |
+| 实心蓝（白字压在上面时） | `#19759b` |
+| 红 / 绿 / 黄 | `#eb5757` / `#0f7b6c` / `#dfab01` |
 | 圆角：控件 / 卡片 / 浮层 | 4px / 6px / 8px |
 | 过渡 | 只保留颜色过渡，150ms 线性 |
 
 字号层级按提示词的 Hero/H1/H2/H3 顺序收敛，正文 14px、行高 1.55，
 标题统一 `font-weight: 600`。
+
+### 与提示词配色表的偏离（3 处，均为满足其自检清单里的 AA 要求）
+
+提示词的配色表与它自己的「对比度达到 WCAG AA」要求互相冲突，实测数据：
+
+| 提示词原值 | 实测 | 处理 |
+| --- | --- | --- |
+| 灰阶第 3 档取 `#9b9a97` | 米色底上 4.14:1 | 灰阶改为 `#37352f` / `#5f5e5a` / `#6f6e69`，三档在米色底上分别 11.35 / 6.01 / 4.73 |
+| 主按钮 `#2eaadc` 压白字 | 2.66:1 | 实心块改用 `#19759b`（5.17:1）；品牌蓝保留给焦点环、描边与选中态 |
+| 浅色底上的小字直接用原色（如 `#2eaadc` 压 `#eff6ff`） | 2.4:1 | 增加 `--*-ink` 一档专供浅底小字，实测 4.9-6.0:1 |
 
 ## 动效与交互
 
@@ -96,17 +108,27 @@ Notion Style 文档风视觉系统。
 渲染层测试依赖的类名必须保持不变：`.messages`、`.message-slot`、
 `.message-slot-inner`、`.msg-row`、`.msg-row.stream`、`.mentions`。
 
-验证步骤：
+验证步骤与结果：
 
 1. `npm run typecheck` 全仓通过。
-2. `npm test`（`@buddy/desktop` 的 RoomView / Panels 两组 + core）通过。
+2. `npm test`：core 230 passed / 7 skipped，desktop 30 passed。
 3. `npm run build` 产出 `dist/renderer/styles.css`。
-4. 用本机已装的 Electron 加载 stub bridge 预览页，截图核对首页、群聊、
-   员工管理、设置四个界面。
-5. 逐条执行提示词末尾的交付自检清单（无渐变、无大圆角、无重阴影、
-   无位移缩放、对比度、reduced-motion）。
+4. 用应用自带的 `BUDDY_SMOKE=1` 截图模式（真实主进程 + 真实 IPC，数据目录指向
+   `.scratch/notion-data` 演示数据）核对首页、群聊、员工管理、设置四个界面。
+5. 在真实渲染进程里实测拖拽手柄：`totalHandles: 6, visibleHandles: 1`，
+   唯一可见的手柄所在祖先链包含 `:hover` 的 `.msg-row`；`viewport` 与
+   `bodyScrollW` 同为 1227，确认手柄落在左侧/右侧的 gutter 里、不产生横向溢出。
+6. 逐条执行提示词末尾的交付自检清单：无渐变、无 `rounded-2xl` 及以上、
+   无重阴影、无位移与缩放动画、无单侧 accent 描边、无嵌套卡片、
+   对比度见上表、`prefers-reduced-motion` 已覆盖。
 
 ## 已知遗留
 
 - `packages/core` 的 `ui.theme` 配置项保留但不再影响外观，仅用于兼容已有配置文件。
 - `App.tsx` 中的 `.notice` 类此前没有任何样式；本次一并补上最简规则。
+- 输入框占位符沿用提示词给的 `placeholder-gray-400`（`#9b9a97`，2.81:1）。
+  WCAG 不要求占位符达到 4.5:1，且输入框都有可见标签，故保留该 token。
+- 折叠区三角箭头保留了 150ms 的 `rotate` 过渡。禁止项只点名 `translate` 与
+  `scale`，而展开/收起的方向指示需要这个反馈；如需绝对静止可一行删除。
+- 开关从「会平移的滑块」改成 Notion 的勾选方块，因为滑块位移属于被禁止的
+  `translate` 动画。

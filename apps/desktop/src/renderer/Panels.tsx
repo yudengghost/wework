@@ -8,7 +8,7 @@ import type {
 import { useEffect, useState } from "react";
 
 import { api, type Bootstrap, type CreateEmployeePayload, type MemorySnapshot } from "./api";
-import { Avatar, Segmented, Switch } from "./ui";
+import { Avatar, DragHandle, Switch } from "./ui";
 
 export function ConfirmDialog({
   title,
@@ -279,6 +279,7 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
 
         {boot.employees.map((employee) => (
           <div key={employee.id} className="card">
+            <DragHandle />
             <div className="row">
               <div className="grow">
                 <strong>{employee.displayName}</strong>
@@ -435,6 +436,7 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
             </p>
             {boot.removedEmployees.map((employee) => (
               <div key={employee.id} className="card">
+                <DragHandle />
                 <div className="row">
                   <div className="grow">
                     <strong>{employee.displayName}</strong>
@@ -687,24 +689,6 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
       <div className="modal" onClick={(event) => event.stopPropagation()}>
         <h2>设置</h2>
         <p className="sub">数据目录：{boot.dataDir}</p>
-
-        <div className="card">
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label>外观主题</label>
-            <Segmented
-              value={config.ui.theme}
-              options={[
-                { value: "dark", label: "石墨深色" },
-                { value: "light", label: "亮色玻璃" },
-                { value: "system", label: "跟随系统" },
-              ]}
-              onChange={(value) =>
-                setConfig({ ...config, ui: { ...config.ui, theme: value } })
-              }
-            />
-          </div>
-          <div className="sub">改完点底部「保存」生效。</div>
-        </div>
 
         <details className="settings-group">
           <summary>启动器（Codex / Claude Code 路径）</summary>
