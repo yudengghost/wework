@@ -103,10 +103,19 @@ interface RunTask {
   depth: number;
   trigger: Message;
   turn: TurnBudget;
+  /**
+   * 这次运行是谁发起的：人类点名（human）还是员工之间接续（cascade）。
+   *
+   * 只有接续那一路受每轮上限约束。人类点名的任务不该被预算砍掉——
+   * 用户 @ 了几个人，就该有几个人干活；而员工互相 @ 是乘法增长
+   * （10 人各 @ 9 人，两层就是几百次），必须有闸。
+   */
+  origin: "human" | "cascade";
 }
 
 interface TurnBudget {
-  remainingRuns: number;
+  /** 本轮「员工接续触发」的运行还剩几次。 */
+  remainingCascade: number;
 }
 
 interface PendingApproval {
@@ -120,7 +129,14 @@ interface PendingApproval {
    * 待放行的投递。只存「入队参数」，不存已经组装好的任务：放行时必须重新走
    * enqueue，才能和自动路径共用同一套刹车（本轮预算、@ 深度、去重）。
    */
-  run?: { roomId: string; employeeId: string; depth: number; trigger: Message; turn: TurnBudget };
+  run?: {
+    roomId: string;
+    employeeId: string;
+    depth: number;
+    trigger: Message;
+    turn: TurnBudget;
+    origin: "human" | "cascade";
+  };
   draft?: EmployeeDraft;
 }
 
@@ -214,14 +230,16 @@ export class RoomService {
       // 单聊不需要 @：房间里只有一名员工，默认就是它。
       targets = room.memberIds.slice(0, 1);
     }
-    const turn: TurnBudget = { remainingRuns: this.deps.config.get().scheduler.maxRunsPerTurn };
+    const turn: TurnBudget = {
+      remainingCascade: this.deps.config.get().scheduler.maxCascadeRuns,
+    };
 
     for (const employeeId of targets) {
       if (policy === "confirm") {
-        this.requestApproval(roomId, employeeId, employeeId, message, turn, 0);
+        this.requestApproval(roomId, employeeId, employeeId, message, turn, 0, "human");
         continue;
       }
-      this.enqueue({ roomId, employeeId, depth: 0, trigger: message, turn });
+      this.enqueue({ roomId, employeeId, depth: 0, trigger: message, turn, origin: "human" });
     }
 
     this.kickDrain();
@@ -425,8 +443,9 @@ export class RoomService {
       this.skip(input.roomId, input.employeeId, reason);
     };
 
-    if (input.turn.remainingRuns <= 0) {
-      reject("本轮运行次数已达上限");
+    // 人类点名的运行没有次数上限；只有员工之间接续触发的那条链子要限流。
+    if (input.origin === "cascade" && input.turn.remainingCascade <= 0) {
+      reject("本轮员工接续触发的运行次数已达上限");
       return;
     }
     if (input.depth > scheduler.maxMentionDepth) {
@@ -446,7 +465,7 @@ export class RoomService {
     }
     this.recentTriggers.set(dedupeKey, at);
 
-    input.turn.remainingRuns -= 1;
+    if (input.origin === "cascade") input.turn.remainingCascade -= 1;
     const task: RunTask = { ...input, runId: createId("run") };
     this.queue.push(task);
     this.traces.queue({
@@ -510,6 +529,7 @@ export class RoomService {
     trigger: Message,
     turn: TurnBudget,
     depth: number,
+    origin: "human" | "cascade",
   ): void {
     const approvalId = createId("appr");
     const target = this.deps.employees.get(employeeId);
@@ -519,7 +539,7 @@ export class RoomService {
       roomId,
       summary: `${trigger.body.slice(0, 60)} → ${target?.displayName ?? targetId}`,
       requesterId: employeeId,
-      run: { roomId, employeeId, depth, trigger, turn },
+      run: { roomId, employeeId, depth, trigger, turn, origin },
     });
     this.events.emit("approval-requested", {
       approvalId,
@@ -771,7 +791,9 @@ export class RoomService {
           attachments: workspaceFiles,
           sessionRef: employee.sessionRef,
           signal: controller.signal,
-          timeoutMs: this.deps.config.get().scheduler.wallClockBudgetMs,
+          // null = 不限制：正常的活本来就可能跑很久（轮次多、工具多），
+          // 拿一个固定时长去杀它，是把「慢」当成「坏」。要停就点停止。
+          timeoutMs: this.deps.config.get().scheduler.wallClockBudgetMs ?? undefined,
         },
         (event) => this.forwardEvent(task, event),
       );
@@ -895,7 +917,15 @@ export class RoomService {
       const mentionsAll = reply.mentions.some((mention) => mention.kind === "all");
       const policy = this.mentionPolicy(room, mentionsAll ? "all" : "employee");
       if (policy === "confirm") {
-        this.requestApproval(room.id, employeeId, employeeId, reply, parent.turn, parent.depth + 1);
+        this.requestApproval(
+          room.id,
+          employeeId,
+          employeeId,
+          reply,
+          parent.turn,
+          parent.depth + 1,
+          "cascade",
+        );
         continue;
       }
       this.enqueue({
@@ -904,6 +934,7 @@ export class RoomService {
         depth: parent.depth + 1,
         trigger: reply,
         turn: parent.turn,
+        origin: "cascade",
       });
     }
   }

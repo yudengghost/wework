@@ -28,6 +28,7 @@ interface Call {
   employeeId: string;
   prompt: string;
   sessionRef?: string;
+  timeoutMs?: number;
 }
 
 interface Harness {
@@ -112,6 +113,7 @@ async function makeHarness(
         employeeId,
         prompt: request.prompt,
         sessionRef: request.sessionRef,
+        timeoutMs: request.timeoutMs,
       });
       concurrency += 1;
       maxConcurrency = Math.max(maxConcurrency, concurrency);
@@ -267,7 +269,7 @@ async function seedTeam(harness: Harness): Promise<{ roomId: string; coder: Empl
 describe("RoomService", () => {
   it("@某员工时只调用该员工，并把回复落成房间消息", async () => {
     const harness = await makeHarness();
-    const { roomId, coder } = await seedTeam(harness);
+    const { roomId, coder, reviewer } = await seedTeam(harness);
 
     await harness.service.submitHumanMessage(roomId, "@小码 看下这个 bug");
     await harness.service.waitForIdle();
@@ -551,11 +553,11 @@ describe("RoomService", () => {
     expect(harness.employees.get(coder.id)?.sessionRef).toBe(`${coder.id}-session`);
   });
 
-  it("审批放行的运行同样消耗本轮预算，不会绕过刹车", async () => {
+  it("审批放行的接力同样消耗接续预算，不会绕过刹车", async () => {
     const harness = await makeHarness();
     const { roomId, coder, reviewer } = await seedTeam(harness);
     await harness.config.update({
-      scheduler: { maxRunsPerTurn: 2 },
+      scheduler: { maxCascadeRuns: 1 },
       policy: { employeeMentionsEmployee: "confirm" },
     });
     harness.setBehavior((_request, displayName) =>
@@ -574,14 +576,14 @@ describe("RoomService", () => {
     await harness.service.waitForIdle();
     expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id, reviewer.id]);
 
-    // 小测接力回 @小码：本轮额度（2 次）已经被「人类那条 + 这次批准」用完，
-    // 再批准也不应该跑——放行不是绕过每轮预算的后门。
+    // 小测接力回 @小码：接续额度（1 次）已经被刚才那次批准用完，
+    // 再批准也不应该跑——放行不是绕过接续预算的后门。
     expect(approvals).toHaveLength(2);
     await harness.service.resolveApproval(approvals[1] as string, true);
     await harness.service.waitForIdle();
 
     expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id, reviewer.id]);
-    expect(skipped).toContain("本轮运行次数已达上限");
+    expect(skipped).toContain("本轮员工接续触发的运行次数已达上限");
   });
 
   it("stopAll 会中止正在运行的员工", async () => {
@@ -1542,6 +1544,87 @@ describe("运行可见性：用户必须看得出员工在不在干活", () => {
     // 用户自己按的停止不需要再解释一遍，房间保持干净
     expect(await harness.service.listMessages(roomId)).toHaveLength(1);
     expect(harness.service.stopRun("run_不存在")).toBe(false);
+  });
+});
+
+describe("运行次数上限与超时", () => {
+  it("人类点名的运行没有次数上限：@all 十个人就十个人都干活", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    for (let index = 0; index < 8; index += 1) {
+      const extra = await harness.employees.create({
+        displayName: `临时工${index}`,
+        framework: "codex",
+        workspaceDir: join(workDir, "ws", `extra-${index}`),
+        stateDir: join(workDir, "state", `extra-${index}`),
+        permissions: { mode: "read-only" },
+        skills: [],
+      });
+      await harness.rooms.update(roomId, {
+        memberIds: [...(harness.rooms.get(roomId)?.memberIds ?? []), extra.id],
+      });
+    }
+    harness.setBehavior(() => ({ text: "干完了" }));
+    const skipped: string[] = [];
+    harness.events.on("run-skipped", (payload) => skipped.push(payload.reason));
+
+    await harness.service.submitHumanMessage(roomId, "@all 都来干活");
+    await harness.service.waitForIdle();
+
+    // 以前有「每轮运行上限=5」，第 6 个人起会被静默跳过
+    expect(harness.calls).toHaveLength(10);
+    expect(skipped).toEqual([]);
+  });
+
+  it("员工之间接续触发仍然限流：额度用完就跳过并说明原因", async () => {
+    const harness = await makeHarness();
+    const { roomId, coder, reviewer } = await seedTeam(harness);
+    const third = await harness.employees.create({
+      displayName: "小前",
+      framework: "codex",
+      workspaceDir: join(workDir, "ws", "third"),
+      stateDir: join(workDir, "state", "third"),
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+    await harness.rooms.update(roomId, {
+      memberIds: [...(harness.rooms.get(roomId)?.memberIds ?? []), third.id],
+    });
+    await harness.config.update({ scheduler: { maxCascadeRuns: 1 } });
+    harness.setBehavior((_request, displayName) =>
+      displayName === "小码" ? { text: "@小测 @小前 你们一起看下" } : { text: "看完了" },
+    );
+    const skipped: string[] = [];
+    harness.events.on("run-skipped", (payload) => skipped.push(payload.reason));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 开始");
+    await harness.service.waitForIdle();
+
+    // 人类点名的那次不受约束；它接续出去的两条只有一条拿到额度（按 @ 的顺序取第一条）
+    expect(harness.calls.map((call) => call.employeeId)).toEqual([coder.id, reviewer.id]);
+    expect(skipped).toEqual(["本轮员工接续触发的运行次数已达上限"]);
+  });
+
+  it("默认不给单次运行设超时：跑得久不等于出错", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+
+    await harness.service.submitHumanMessage(roomId, "@小码 干个长活");
+    await harness.service.waitForIdle();
+
+    // undefined 落到进程层就是「不设定时器」，不会被一个固定时长杀掉
+    expect(harness.calls[0]?.timeoutMs).toBeUndefined();
+  });
+
+  it("想设超时也能设：设置了就原样交给进程层", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    await harness.config.update({ scheduler: { wallClockBudgetMs: 900000 } });
+
+    await harness.service.submitHumanMessage(roomId, "@小码 干活");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[0]?.timeoutMs).toBe(900000);
   });
 });
 

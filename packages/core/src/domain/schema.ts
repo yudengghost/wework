@@ -87,7 +87,8 @@ export const messageSchema = z.object({
 export type Message = z.infer<typeof messageSchema>;
 
 export const roomPolicySchema = z.object({
-  maxConcurrentRuns: z.number().int().positive().optional(),
+  // 这里曾经有 maxConcurrentRuns（每个房间的并发上限）：它从来没被读过——
+  // 调度器读的一直是全局设置，而且现在不同员工本就不排队，所以删掉。
   maxMentionDepth: z.number().int().nonnegative().optional(),
   employeeMentionsEmployee: mentionPolicySchema.optional(),
   employeeMentionsAll: mentionPolicySchema.optional(),

@@ -9,10 +9,23 @@ export const launcherSettingsSchema = z.object({
 export type LauncherSettings = z.infer<typeof launcherSettingsSchema>;
 
 export const schedulerSettingsSchema = z.object({
-  maxRunsPerTurn: z.number().int().positive().default(5),
+  /**
+   * 单次运行的时间上限（毫秒）。null = 不限制，默认不限制。
+   *
+   * 默认不设限：员工正常干活时就可能轮次很多、跑很久，拿一个固定时长去杀它，
+   * 等于把「慢」当成「坏」。真要中断就点停止。
+   */
+  wallClockBudgetMs: z.number().int().positive().nullable().default(null),
+  /**
+   * 每轮「员工接续触发」的运行上限。
+   *
+   * 人类点名的运行不受它约束——用户 @ 了几个人就该有几个人干活。
+   * 它管的是员工之间互相 @ 那条链子：那是乘法增长（10 人各 @ 9 人，
+   * 两层就上百次），不设阀会真的烧穿额度。
+   */
+  maxCascadeRuns: z.number().int().positive().default(12),
   maxMentionDepth: z.number().int().nonnegative().default(3),
   dedupeWindowMs: z.number().int().nonnegative().default(5000),
-  wallClockBudgetMs: z.number().int().positive().default(600000),
   /** 上下文条数上限：冷启动时作为起步窗口，之后作为增量的封顶。 */
   contextWindowMessages: z.number().int().positive().default(50),
 });

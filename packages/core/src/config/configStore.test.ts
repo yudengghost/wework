@@ -109,10 +109,10 @@ describe("ConfigStore.get / update", () => {
     await store.load();
 
     await expect(
-      store.update({ scheduler: { maxRunsPerTurn: 0 as unknown as number } }),
+      store.update({ scheduler: { maxCascadeRuns: 0 as unknown as number } }),
     ).rejects.toBeTruthy();
 
-    expect(store.get().scheduler.maxRunsPerTurn).toBe(5);
+    expect(store.get().scheduler.maxCascadeRuns).toBe(12);
   });
 
   it("落盘后目录里没有残留临时文件", async () => {

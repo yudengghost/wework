@@ -791,6 +791,11 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
     setConfig({ ...config, scheduler: { ...config.scheduler, [key]: value } });
   };
 
+  /** 单次运行超时：留空 = 不限制（null），所以不能跟其它数字字段用同一套输入。 */
+  const setRunLimit = (value: number | null): void => {
+    setConfig({ ...config, scheduler: { ...config.scheduler, wallClockBudgetMs: value } });
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(event) => event.stopPropagation()}>
@@ -912,10 +917,9 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
         <div className="grid2">
           {(
             [
-              ["maxRunsPerTurn", "每轮运行上限"],
+              ["maxCascadeRuns", "员工接续运行上限"],
               ["maxMentionDepth", "@ 接续层数上限"],
               ["dedupeWindowMs", "重复消息去重窗口(ms)"],
-              ["wallClockBudgetMs", "单次运行超时(ms)"],
               ["contextWindowMessages", "房间上下文条数"],
             ] as const
           ).map(([key, label]) => (
@@ -928,7 +932,22 @@ export function SettingsPanel({ boot, onClose, onChanged }: PanelProps) {
               />
             </div>
           ))}
+          <div className="field">
+            <label>单次运行超时(ms，留空=不限制)</label>
+            <input
+              type="number"
+              value={config.scheduler.wallClockBudgetMs ?? ""}
+              placeholder="不限制"
+              onChange={(event) =>
+                setRunLimit(event.target.value === "" ? null : Number(event.target.value))
+              }
+            />
+          </div>
         </div>
+        <p className="sub" style={{ margin: "6px 0 0" }}>
+          人类点名的运行没有次数上限（@ 了几个人就有几个人干活）；「员工接续运行上限」只管
+          员工之间互相 @ 触发的接力。单次运行默认不设超时：跑得久不等于出错，要中断就点运行条上的停止。
+        </p>
 
         </div></details>
 

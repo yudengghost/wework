@@ -11,10 +11,10 @@ describe("defaultConfig", () => {
         "claude-code": { executablePath: null, detectWsl: false },
       },
       scheduler: {
-        maxRunsPerTurn: 5,
+        wallClockBudgetMs: null,
+        maxCascadeRuns: 12,
         maxMentionDepth: 3,
         dedupeWindowMs: 5000,
-        wallClockBudgetMs: 600000,
         contextWindowMessages: 50,
       },
       policy: {
