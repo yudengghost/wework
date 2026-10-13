@@ -2,7 +2,35 @@ import type { Employee, Message, Room } from "@buddy/core";
 import { useEffect, useRef, useState } from "react";
 
 import { api, type ApprovalEvent } from "./api";
-import { AlertIcon, Avatar, PlusIcon, SendIcon, StopIcon, TrashIcon } from "./ui";
+import {
+  AlertIcon,
+  Avatar,
+  FileIcon,
+  PaperclipIcon,
+  PlusIcon,
+  SendIcon,
+  StopIcon,
+  TrashIcon,
+} from "./ui";
+
+export interface PendingFile {
+  name: string;
+  sourcePath: string;
+}
+
+/** 附件图片要用 file:// 显示；路径里的空格与 # ? 必须编码，否则链接会断。 */
+function toFileUrl(path: string): string {
+  return `file:///${encodeURI(path.replace(/\\/g, "/"))
+    .replace(/#/g, "%23")
+    .replace(/\?/g, "%3F")}`;
+}
+
+function formatSize(bytes?: number): string {
+  if (bytes === undefined) return "";
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
 
 interface RoomViewProps {
   room: Room;
@@ -11,7 +39,7 @@ interface RoomViewProps {
   streams: Record<string, string>;
   running: Record<string, boolean>;
   approvals: ApprovalEvent[];
-  onSend: (body: string) => Promise<void>;
+  onSend: (body: string, files: PendingFile[]) => Promise<void>;
   onResolveApproval: (approvalId: string, approved: boolean) => void;
   onAddMember: (employeeId: string) => Promise<void>;
   onRemoveMember: (employeeId: string) => Promise<void>;
@@ -27,6 +55,8 @@ export function RoomView(props: RoomViewProps) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [pending, setPending] = useState<PendingFile[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
 
@@ -66,14 +96,45 @@ export function RoomView(props: RoomViewProps) {
 
   const submit = async (): Promise<void> => {
     const body = draft.trim();
-    if (body === "") return;
+    // 只带附件、不写字也应该能发出去。
+    if (body === "" && pending.length === 0) return;
+    const files = pending;
     setDraft("");
+    setPending([]);
     try {
-      await props.onSend(body);
+      await props.onSend(body, files);
       setError(null);
+    } catch (cause) {
+      setPending(files);
+      setError(String(cause));
+    }
+  };
+
+  const addPickedFiles = async (): Promise<void> => {
+    try {
+      const picked = await api.pickFiles();
+      if (picked.length > 0) setPending((prev) => [...prev, ...picked]);
     } catch (cause) {
       setError(String(cause));
     }
+  };
+
+  /** 拖拽进来的文件只能靠 preload 的 webUtils 拿真实路径；拿不到就明确报错。 */
+  const handleDrop = (event: React.DragEvent): void => {
+    event.preventDefault();
+    setDragOver(false);
+    const resolved = [...event.dataTransfer.files]
+      .map((file) => {
+        const sourcePath = api.pathForFile(file);
+        return sourcePath === "" ? null : { name: file.name, sourcePath };
+      })
+      .filter((item): item is PendingFile => item !== null);
+
+    if (resolved.length === 0) {
+      setError("没能读到拖入文件的路径，请改用输入框左侧的回形针按钮选择文件。");
+      return;
+    }
+    setPending((prev) => [...prev, ...resolved]);
   };
 
   const streamingIds = Object.keys(streams);
@@ -161,6 +222,13 @@ export function RoomView(props: RoomViewProps) {
       <div
         className="messages"
         ref={listRef}
+        onDragOver={(event) => {
+          if (props.readOnly) return;
+          event.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={props.readOnly ? undefined : handleDrop}
         onScroll={(event) => {
           const element = event.currentTarget;
           atBottomRef.current =
@@ -191,7 +259,30 @@ export function RoomView(props: RoomViewProps) {
                   <span>{message.createdAt.slice(11, 16)}</span>
                   {working && <span className="tag ok">工作中</span>}
                 </div>
-                <div className="bubble">{message.body}</div>
+                <div className="bubble">
+                  {message.body}
+                  {message.attachments.length > 0 && (
+                    <div className="bubble-files">
+                      {message.attachments.map((attachment) =>
+                        (attachment.mimeType ?? "").startsWith("image/") ? (
+                          <img
+                            key={attachment.id}
+                            className="bubble-image"
+                            src={toFileUrl(attachment.path)}
+                            alt={attachment.name}
+                            title={attachment.name}
+                          />
+                        ) : (
+                          <span key={attachment.id} className="chip" title={attachment.path}>
+                            <FileIcon />
+                            {attachment.name}
+                            <span className="tag">{formatSize(attachment.sizeBytes)}</span>
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -272,6 +363,26 @@ export function RoomView(props: RoomViewProps) {
             </div>
           </div>
         )}
+        {dragOver && (
+          <div className="drop-hint">松开鼠标即可把这些文件加为附件</div>
+        )}
+        {pending.length > 0 && (
+          <div className="pending-files">
+            {pending.map((file, index) => (
+              <span key={`${file.sourcePath}-${index}`} className="chip" title={file.sourcePath}>
+                <FileIcon />
+                {file.name}
+                <button
+                  className="chip-x"
+                  title="移除"
+                  onClick={() => setPending((prev) => prev.filter((_, at) => at !== index))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="composer-row">
           <div className="grow">
             <textarea
@@ -298,6 +409,14 @@ export function RoomView(props: RoomViewProps) {
               }}
             />
           </div>
+          <button
+            className="icon-btn"
+            title="添加附件"
+            disabled={props.readOnly === true}
+            onClick={() => void addPickedFiles()}
+          >
+            <PaperclipIcon />
+          </button>
           <button
             className="primary send-btn"
             title="发送（Enter）"

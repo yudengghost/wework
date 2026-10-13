@@ -36,6 +36,11 @@ export const defaultPrompts = {
   /** 技能注入时的说明。 */
   skillsHeader: "以下技能已启用。任务匹配时，先读取对应的 SKILL.md 再动手：",
 
+  /** 附件注入时的说明。占位符：{count} */
+  attachmentsHeader: "本次消息带了 {count} 个附件，都已放进你的工作目录，可以直接读取：",
+  attachmentsGuide:
+    "路径相对你的工作目录。需要时用工具打开它们；图片也可以直接看。不要修改原始附件以外的无关文件。",
+
   /** 归纳长期记忆用的 system prompt 与指令。 */
   distillSystem: "你是记忆整理器，只做归纳，不执行任何任务。",
   distillInstruction: [

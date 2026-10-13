@@ -20,6 +20,8 @@ export interface AgentRunRequest {
   cwd: string;
   model?: string;
   permissions: PermissionPolicy;
+  /** 已复制进员工工作目录的附件；图片会额外作为原生图片入参传给框架。 */
+  attachments?: { name: string; absolutePath: string; relativePath: string; mimeType: string }[];
   /** 续接已有会话。 */
   sessionRef?: string;
   timeoutMs?: number;

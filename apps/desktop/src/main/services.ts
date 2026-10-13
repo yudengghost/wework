@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import {
   ConfigStore,
+  AttachmentStore,
   CursorStore,
   EmployeeStore,
   FileStore,
@@ -68,6 +69,7 @@ export async function createServices(): Promise<AppServices> {
   await cursors.load();
   const promptsPath = join(dataDir, "prompts.json");
   const { pack: prompts } = await loadPromptPack(store, promptsPath);
+  const attachments = new AttachmentStore({ dataDir });
   const service = new RoomService({
     config,
     employees,
@@ -76,6 +78,7 @@ export async function createServices(): Promise<AppServices> {
     memory,
     cursors,
     prompts,
+    attachments,
     skillsFor: async (employee: Employee) => {
       const catalog = await loadSkillCatalog(dataDir, config.get().skills);
       return catalog.filter((skill) => employee.skills.includes(skill.id));

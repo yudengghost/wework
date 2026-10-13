@@ -2,7 +2,8 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <!-- img-src 必须放行 file:，否则消息里的附件图片会被 CSP 拦掉 -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:" />
     <title>Buddy</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>

@@ -1339,6 +1339,47 @@ code {
   border: 1px solid color-mix(in oklch, var(--warn) 30%, transparent);
 }
 
+/* ---- 附件 ---- */
+
+.pending-files,
+.bubble-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.pending-files {
+  margin-bottom: 9px;
+}
+
+.bubble-files {
+  margin-top: 9px;
+}
+
+.bubble-files .chip {
+  background: color-mix(in oklch, var(--bg) 55%, transparent);
+}
+
+.bubble-image {
+  max-width: 260px;
+  max-height: 200px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  object-fit: cover;
+  display: block;
+}
+
+.drop-hint {
+  margin-bottom: 9px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  border: 1px dashed color-mix(in oklch, var(--accent) 55%, transparent);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: 12.5px;
+  text-align: center;
+}
+
 /* 尊重系统的「减少动态效果」设置 */
 .segmented {
   display: inline-flex;

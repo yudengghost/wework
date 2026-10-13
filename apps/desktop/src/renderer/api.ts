@@ -64,6 +64,7 @@ interface BuddyBridge {
   onMessage(handler: (message: Message) => void): () => void;
   onRun(handler: (event: RunEvent) => void): () => void;
   onApproval(handler: (event: ApprovalEvent) => void): () => void;
+  pathForFile(file: File): string;
 }
 
 declare global {
@@ -93,8 +94,10 @@ export const api = {
   setRoomMember: (roomId: string, employeeId: string, member: boolean) =>
     window.buddy.invoke<Room>("room:member", { roomId, employeeId, member }),
   messages: (roomId: string) => window.buddy.invoke<Message[]>("room:messages", { roomId }),
-  send: (roomId: string, body: string) =>
-    window.buddy.invoke<Message>("room:send", { roomId, body }),
+  send: (roomId: string, body: string, files: { name: string; sourcePath: string }[] = []) =>
+    window.buddy.invoke<Message>("room:send", { roomId, body, files }),
+  pickFiles: () => window.buddy.invoke<{ name: string; sourcePath: string }[]>("files:pick"),
+  pathForFile: (file: File) => window.buddy.pathForFile(file),
   stopAll: () => window.buddy.invoke<{ cancelled: number }>("run:stopAll"),
   resolveApproval: (approvalId: string, approved: boolean) =>
     window.buddy.invoke<boolean>("approval:resolve", { approvalId, approved }),

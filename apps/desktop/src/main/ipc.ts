@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import type {
   BuddyConfig,
@@ -7,7 +7,7 @@ import type {
   Message,
   PermissionMode,
 } from "@buddy/core";
-import { app, ipcMain, type BrowserWindow } from "electron";
+import { app, dialog, ipcMain, type BrowserWindow } from "electron";
 
 import {
   defaultWorkspaceDir,
@@ -239,9 +239,22 @@ export function registerIpc(
     messages.readAll(roomId),
   );
 
-  handle<{ roomId: string; body: string }, Message>("room:send", ({ roomId, body }) =>
-    service.submitHumanMessage(roomId, body),
+  handle<
+    { roomId: string; body: string; files?: { name: string; sourcePath: string }[] },
+    Message
+  >("room:send", ({ roomId, body, files }) =>
+    service.submitHumanMessage(roomId, body, files ?? []),
   );
+
+  /** 让用户在系统文件选择器里挑附件；主进程直接拿到路径，不必把文件内容搬过 IPC。 */
+  handle("files:pick", async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openFile", "multiSelections"],
+      title: "选择要发给员工的附件",
+    });
+    if (result.canceled) return [];
+    return result.filePaths.map((path) => ({ name: basename(path), sourcePath: path }));
+  });
 
   handle("run:stopAll", () => ({ cancelled: service.stopAll() }));
 

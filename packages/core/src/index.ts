@@ -28,3 +28,4 @@ export * from "./room/roomService";
 export * from "./memory/memoryStore";
 export * from "./skills/skillCatalog";
 export * from "./prompts/promptPack";
+export * from "./attachments/attachmentStore";

@@ -345,8 +345,8 @@ export function App() {
             streams={streams}
             running={running}
             approvals={approvals.filter((item) => item.roomId === selectedRoom.id)}
-            onSend={async (body) => {
-              await api.send(selectedRoom.id, body);
+            onSend={async (body, files) => {
+              await api.send(selectedRoom.id, body, files);
             }}
             onResolveApproval={(id, approved) => void resolveApproval(id, approved)}
             onAddMember={async (employeeId) => {

@@ -95,6 +95,19 @@ export const AlertIcon = ({ size = 16 }: IconProps) => (
   </svg>
 );
 
+export const PaperclipIcon = ({ size = 17 }: IconProps) => (
+  <svg {...base(size)}>
+    <path d="M20 11.5 12.3 19.2a4.6 4.6 0 0 1-6.5-6.5l7.6-7.6a3.1 3.1 0 1 1 4.4 4.4l-7.6 7.6a1.6 1.6 0 0 1-2.2-2.2l7-7" />
+  </svg>
+);
+
+export const FileIcon = ({ size = 15 }: IconProps) => (
+  <svg {...base(size)}>
+    <path d="M13.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5Z" />
+    <path d="M13.5 3.5v5h5" />
+  </svg>
+);
+
 /** 中文取前两字，拉丁按词取首字母，最多两位。 */
 export function initials(name: string): string {
   const trimmed = name.trim();

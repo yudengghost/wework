@@ -1,5 +1,6 @@
 import type { PermissionMode } from "../domain/schema";
 import type { AgentRunRequest } from "./events";
+import { isImage } from "../attachments/attachmentStore";
 
 /** 权限模式映射。Codex 用 --sandbox，取值经 `codex exec --help` 核实。 */
 const codexSandboxByMode: Record<PermissionMode, string> = {
@@ -30,6 +31,11 @@ export function buildCodexArgs(request: AgentRunRequest): string[] {
     "--json",
     "--skip-git-repo-check",
     ...(request.model ? ["-m", request.model] : []),
+    // 图片走 Codex 原生的 --image（比"给你个路径自己去读"质量好得多）。
+    // 路径由我们自己生成、位于员工工作目录内，不含 cmd 会改写的字符，因此可以放进 argv。
+    ...(request.attachments ?? [])
+      .filter((attachment) => isImage(attachment))
+      .flatMap((attachment) => ["-i", attachment.absolutePath]),
   ];
   return request.sessionRef
     ? ["exec", "resume", request.sessionRef, ...shared, "-"]

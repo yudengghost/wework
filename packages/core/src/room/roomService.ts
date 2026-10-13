@@ -1,8 +1,9 @@
 import type { AdapterCreation } from "../adapters/createAdapter";
 import type { AgentAdapter, AgentEvent } from "../adapters/events";
+import type { AttachmentStore, WorkspaceAttachment } from "../attachments/attachmentStore";
 import type { ConfigStore } from "../config/configStore";
 import { createId } from "../domain/ids";
-import type { Employee, Mention, Message, Room } from "../domain/schema";
+import type { Attachment, Employee, Mention, Message, Room } from "../domain/schema";
 import type { EmployeeStore } from "../employee/employeeStore";
 import { EventBus } from "../events/eventBus";
 import type { MemoryStore } from "../memory/memoryStore";
@@ -36,6 +37,8 @@ export interface RoomServiceDeps {
   createAdapter: (employee: Employee) => Promise<AdapterCreation>;
   cursors: CursorStore;
   memory?: MemoryStore;
+  /** 附件落在磁盘上的位置；不传则不支持附件。 */
+  attachments?: AttachmentStore;
   /** 面向模型的文案；不传则用内置默认值。 */
   prompts?: PromptPack;
   /** 该员工启用的技能，用于在提示词里告诉它有哪些能力可用。 */
@@ -117,14 +120,26 @@ export class RoomService {
   }
 
   /** 人类发一条消息：落库、解析 @、按策略投递。 */
-  async submitHumanMessage(roomId: string, body: string): Promise<Message> {
+  async submitHumanMessage(
+    roomId: string,
+    body: string,
+    files: { name: string; sourcePath: string }[] = [],
+  ): Promise<Message> {
     const room = this.requireRoom(roomId);
     const parsed = parseMentions(body, this.candidates());
+    // 附件先落到房间级目录：用户原始文件随时可能被移走，而消息要长期可读。
+    const messageId = createId("msg");
+    const attachments: Attachment[] =
+      this.deps.attachments && files.length > 0
+        ? await this.deps.attachments.stageIncoming(roomId, messageId, files)
+        : [];
     const message = await this.appendMessage({
       roomId,
       sender: { kind: "human" },
       body,
       mentions: parsed.mentions,
+      attachments,
+      messageId,
     });
 
     const policy = this.deps.config.get().policy.humanMentionsEmployee;
@@ -345,7 +360,16 @@ export class RoomService {
     });
 
     try {
-      const prompt = await this.buildPrompt(task, employee);
+      // 附件复制进员工工作目录，这样它在 cwd 内就能直接读到；图片还会作为原生图片入参。
+      const workspaceFiles: WorkspaceAttachment[] =
+        this.deps.attachments && task.trigger.attachments.length > 0
+          ? await this.deps.attachments.stageIntoWorkspace(
+              employee.workspaceDir,
+              task.trigger.id,
+              task.trigger.attachments,
+            )
+          : [];
+      const prompt = await this.buildPrompt(task, employee, workspaceFiles);
       const result = await created.adapter.run(
         {
           prompt,
@@ -353,6 +377,7 @@ export class RoomService {
           cwd: employee.workspaceDir,
           model: employee.model,
           permissions: employee.permissions,
+          attachments: workspaceFiles,
           sessionRef: employee.sessionRef,
           signal: controller.signal,
           timeoutMs: this.deps.config.get().scheduler.wallClockBudgetMs,
@@ -452,7 +477,11 @@ export class RoomService {
     }
   }
 
-  private async buildPrompt(task: RunTask, employee: Employee): Promise<string> {
+  private async buildPrompt(
+    task: RunTask,
+    employee: Employee,
+    attachments: WorkspaceAttachment[] = [],
+  ): Promise<string> {
     const { contextWindowMessages } = this.deps.config.get().scheduler;
     const cursor = this.deps.cursors.get(employee.id, task.roomId) ?? null;
     const delta = await this.deps.messages.readAfter(
@@ -476,6 +505,7 @@ export class RoomService {
       contextLines === "" ? this.prompts.contextEmpty : contextLines,
       "</context>",
       ...(room === undefined ? [] : ["", await this.teamBlock(room, employee)]),
+      ...(attachments.length === 0 ? [] : ["", this.attachmentBlock(attachments)]),
       ...(memory === "" ? [] : ["", memory]),
       ...(skills === "" ? [] : ["", skills]),
       "",
@@ -539,6 +569,23 @@ export class RoomService {
       this.prompts.memoryHeader,
       ...facts.map((fact) => `- ${oneLine(fact.text)}`),
       "</long_term_memory>",
+    ].join("\n");
+  }
+
+  /** 附件清单：给出工作目录内的相对路径，员工用工具就能打开。 */
+  private attachmentBlock(attachments: WorkspaceAttachment[]): string {
+    return [
+      "<attachments>",
+      render(this.prompts.attachmentsHeader, { count: attachments.length }),
+      ...attachments.map(
+        (attachment) =>
+          `- ${attachment.relativePath}（${attachment.mimeType}，${Math.max(
+            1,
+            Math.round(attachment.sizeBytes / 1024),
+          )}KB）`,
+      ),
+      this.prompts.attachmentsGuide,
+      "</attachments>",
     ].join("\n");
   }
 
@@ -703,14 +750,16 @@ export class RoomService {
     sender: Message["sender"];
     body: string;
     mentions: Mention[];
+    attachments?: Attachment[];
+    messageId?: string;
   }): Promise<Message> {
     const message: Message = {
-      id: createId("msg"),
+      id: input.messageId ?? createId("msg"),
       roomId: input.roomId,
       sender: input.sender,
       mentions: input.mentions,
       body: input.body,
-      attachments: [],
+      attachments: input.attachments ?? [],
       kind: "chat",
       createdAt: this.now().toISOString(),
     };
