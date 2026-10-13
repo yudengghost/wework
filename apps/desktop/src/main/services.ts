@@ -327,7 +327,8 @@ export async function createEmployeeFromDraft(
       canHire: draft.canHire ?? false,
       permissions: {
         mode: draft.permissionMode ?? "workspace-write",
-        network: draft.network ?? false,
+        // 默认联网：多数岗位都要用得上；要收紧就在员工卡片里按人关掉。
+        network: draft.network ?? true,
         allowedTools: [],
         disallowedTools: [],
         requireApprovalFor: [],

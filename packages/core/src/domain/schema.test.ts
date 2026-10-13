@@ -9,12 +9,13 @@ import {
 } from "./schema";
 
 describe("permissionPolicySchema", () => {
-  it("只给 mode 时补全联网开关与三个数组的默认值", () => {
+  it("只给 mode 时，联网默认打开，三个数组补空", () => {
     const policy = permissionPolicySchema.parse({ mode: "read-only" });
 
     expect(policy).toEqual({
       mode: "read-only",
-      network: false,
+      // 默认联网：多数岗位日常要用；要收紧的人在员工卡片里按人关掉
+      network: true,
       allowedTools: [],
       disallowedTools: [],
       requireApprovalFor: [],

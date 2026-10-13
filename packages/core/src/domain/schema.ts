@@ -16,8 +16,11 @@ export const permissionPolicySchema = z.object({
   /**
    * 允许联网：员工可以搜索、下载（例如 HR 去网上找技能）。
    * 只放开网络，文件写入仍然限制在工作目录内（Codex 的 workspace-write 沙箱实测支持这种组合）。
+   *
+   * 默认打开：联网是大多数岗位的日常需要；关掉它属于收紧，由用户在员工卡片里按人决定。
+   * 注意 Codex 只在 workspace-write 上提供这个开关，只读权限下联网不会生效。
    */
-  network: z.boolean().default(false),
+  network: z.boolean().default(true),
   allowedTools: z.array(z.string()).default([]),
   disallowedTools: z.array(z.string()).default([]),
   requireApprovalFor: z.array(z.string()).default([]),

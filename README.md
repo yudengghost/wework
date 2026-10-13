@@ -87,6 +87,7 @@ $env:WEWORK_LIVE_TESTS="1"; npm run test -w @wework/core   # 真机联调（会�
 
 - 「停止全部」立刻中止所有排队与运行中的员工。每次运行都用 `AbortSignal` + 杀进程树，不会留下野进程。
 - 权限按员工配置，映射到各框架原生机制：Codex 用 `--sandbox read-only|workspace-write|danger-full-access`，Claude 用 `--permission-mode manual|acceptEdits|bypassPermissions`。
+- 员工**默认允许联网**（Codex 用 `-c sandbox_workspace_write.network_access=true`：只放开网络，文件写入仍然限制在它自己的工作目录内），可在员工卡片里按人关掉；只读权限下联网不生效。
 - 员工默认在**自己的工作目录**里干活（`%APPDATA%\Wework\data\workspaces\<员工名>`），不会动你的代码仓库，除非你把工作目录指过去。
 - 员工**可以同名**（内部用 id 区分，工作目录也会自动错开）。但同一个房间里如果有两位同名员工，`@这个名字` 不会被投递给任何人——房间会写明是哪些人撞了名字，改名或只留一位即可恢复。
 - 员工申请招人时，如果申请里写了工作目录，审批卡片会把那个目录一起显示出来，看清楚再点「批准招人」。

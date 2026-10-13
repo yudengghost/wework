@@ -338,7 +338,11 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
               />
               <Switch
                 label="允许联网（搜索 / 下载技能）"
-                hint="只放开网络，文件写入仍然只在它自己的工作目录里；需要「可写工作目录」权限"
+                hint={
+                  employee.permissions.mode === "read-only"
+                    ? "只读权限下联网不生效（Codex 的联网开关只在「可写工作目录」及以上可用）"
+                    : "只放开网络，文件写入仍然只在它自己的工作目录里"
+                }
                 checked={employee.permissions.network}
                 onChange={(value) => {
                   runGuarded(api.updateEmployee(employee.id, { network: value }).then(onChanged));
@@ -553,6 +557,9 @@ export function EmployeesPanel({ boot, onClose, onChanged }: PanelProps) {
             </select>
           </div>
         </div>
+        <p className="sub" style={{ marginTop: 0 }}>
+          新员工默认允许联网（只放开网络，文件写入仍限制在它自己的工作目录里）；要收紧就在员工卡片里按人关掉。
+        </p>
         <div className="field">
           <label>职责 / 人设（可选）</label>
           <textarea
