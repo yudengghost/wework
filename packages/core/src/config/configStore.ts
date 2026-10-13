@@ -14,6 +14,27 @@ export type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
+/** wallClockBudgetMs 在改成「默认可选」之前的默认值。 */
+const legacyRunTimeoutMs = 600000;
+
+/**
+ * 把老配置里「从旧默认值抄下来」的字段清掉。
+ *
+ * 为什么非做不可：默认值一旦被写进用户文件，改默认值就对这些人失效。
+ * wallClockBudgetMs 以前默认 600000（10 分钟），现在默认不限制（null）；
+ * 用户文件里那个 600000 几乎必然来自旧默认值而不是有意选择，留着它，
+ * 「跑得久不再被杀」这个修复就永远落不到他身上——他只会继续收到「运行超时」。
+ * 真想要 10 分钟上限，在设置里重新填一次即可。
+ */
+function normalizeLegacy(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const config = raw as { scheduler?: unknown };
+  if (typeof config.scheduler !== "object" || config.scheduler === null) return raw;
+  const scheduler = { ...(config.scheduler as Record<string, unknown>) };
+  if (scheduler.wallClockBudgetMs === legacyRunTimeoutMs) delete scheduler.wallClockBudgetMs;
+  return { ...config, scheduler };
+}
+
 export class ConfigStore {
   private current: WeworkConfig | null = null;
 
@@ -36,7 +57,7 @@ export class ConfigStore {
       throw new DataParseError("配置文件不是合法 JSON", this.filePath, error);
     }
 
-    const parsed = weworkConfigSchema.safeParse(deepMerge(defaultConfig(), json));
+    const parsed = weworkConfigSchema.safeParse(deepMerge(defaultConfig(), normalizeLegacy(json)));
     if (!parsed.success) {
       throw new DataParseError(`配置校验失败: ${parsed.error.message}`, this.filePath);
     }

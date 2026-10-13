@@ -42,11 +42,11 @@ describe("RoomStore", () => {
     const room = await store.create({
       name: "攻坚",
       memberIds: ["emp_1", "emp_2"],
-      policy: { maxMentionDepth: 1 },
+      policy: { employeeMentionsAll: "confirm" },
     });
 
     expect(room.memberIds).toEqual(["emp_1", "emp_2"]);
-    expect(room.policy?.maxMentionDepth).toBe(1);
+    expect(room.policy?.employeeMentionsAll).toBe("confirm");
   });
 
   it("update 可改成员与策略", async () => {

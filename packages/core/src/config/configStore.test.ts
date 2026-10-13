@@ -76,6 +76,28 @@ describe("ConfigStore.load", () => {
     expect("maxEmployeeCreationsPerRoom" in config.scheduler).toBe(false);
     expect("maxConcurrentRuns" in config.scheduler).toBe(false);
   });
+
+  it("老配置里抄下来的旧默认超时会当成「没设过」：默认不限制才真的生效", async () => {
+    // 以前 wallClockBudgetMs 默认 600000，被写进了用户文件；现在默认不限制，
+    // 不清掉这个 600000 的话，改默认值对老用户就是不生效的。
+    await writeFile(
+      filePath,
+      JSON.stringify({ scheduler: { wallClockBudgetMs: 600000, dedupeWindowMs: 8000 } }),
+      "utf8",
+    );
+
+    const config = await makeStore().load();
+
+    expect(config.scheduler.wallClockBudgetMs).toBeNull();
+    // 只清那一个旧默认值，别人自己改过的设置一概不动
+    expect(config.scheduler.dedupeWindowMs).toBe(8000);
+  });
+
+  it("用户自己设的超时照旧生效", async () => {
+    await writeFile(filePath, JSON.stringify({ scheduler: { wallClockBudgetMs: 900000 } }), "utf8");
+
+    expect((await makeStore().load()).scheduler.wallClockBudgetMs).toBe(900000);
+  });
 });
 
 describe("ConfigStore.get / update", () => {
