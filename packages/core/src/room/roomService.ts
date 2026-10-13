@@ -10,6 +10,7 @@ import type { MemoryStore } from "../memory/memoryStore";
 import { defaultPromptPack, render, type PromptPack } from "../prompts/promptPack";
 import type { SkillInfo } from "../skills/skillCatalog";
 import { parseMentions } from "./mentions";
+import { extractEmployeeRequests, type EmployeeDraft } from "./employeeRequest";
 import type { CursorStore } from "./cursorStore";
 import type { MessageLog } from "./messageLog";
 import type { RoomStore } from "./roomStore";
@@ -26,6 +27,9 @@ export interface RoomServiceEvents extends Record<string, unknown> {
     employeeId: string;
     targetId: string;
     summary: string;
+    /** run = 员工之间的投递；hire = 招人申请。 */
+    kind?: "run" | "hire";
+    draft?: EmployeeDraft;
   };
 }
 
@@ -39,6 +43,10 @@ export interface RoomServiceDeps {
   memory?: MemoryStore;
   /** 附件落在磁盘上的位置；不传则不支持附件。 */
   attachments?: AttachmentStore;
+  /** 应用层提供的"创建员工"能力；不传则员工不能申请招人。 */
+  createEmployee?: (
+    draft: EmployeeDraft,
+  ) => Promise<{ ok: true; employee: Employee } | { ok: false; reason: string }>;
   /** 面向模型的文案；不传则用内置默认值。 */
   prompts?: PromptPack;
   /** 该员工启用的技能，用于在提示词里告诉它有哪些能力可用。 */
@@ -61,8 +69,14 @@ interface TurnBudget {
 }
 
 interface PendingApproval {
-  task: RunTask;
+  /** run = 员工之间的投递；hire = 员工提交的招人申请。 */
+  kind: "run" | "hire";
   targetId: string;
+  roomId: string;
+  summary: string;
+  requesterId: string;
+  task?: RunTask;
+  draft?: EmployeeDraft;
 }
 
 function truncate(text: string, max: number): string {
@@ -101,6 +115,8 @@ export class RoomService {
   private readonly roomRunCounts = new Map<string, number>();
   private readonly recentTriggers = new Map<string, number>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
+  /** 每个房间已受理的招人申请数，防止一个员工无限招人。 */
+  private readonly hireCounts = new Map<string, number>();
   private drainPromise: Promise<void> | null = null;
 
   constructor(private readonly deps: RoomServiceDeps) {
@@ -167,7 +183,14 @@ export class RoomService {
     const pending = this.pendingApprovals.get(approvalId);
     if (!pending) return false;
     this.pendingApprovals.delete(approvalId);
-    if (approved) {
+    if (!approved) return true;
+
+    // 招人申请与投递任务是两类审批，批准后要做的事不同。
+    if (pending.kind === "hire") {
+      await this.approveHire(pending);
+      return true;
+    }
+    if (pending.task) {
       this.queue.push(pending.task);
       this.kickDrain();
     }
@@ -283,7 +306,11 @@ export class RoomService {
     const approvalId = createId("appr");
     const target = this.deps.employees.get(employeeId);
     this.pendingApprovals.set(approvalId, {
+      kind: "run",
       targetId,
+      roomId,
+      summary: `${trigger.body.slice(0, 60)} → ${target?.displayName ?? targetId}`,
+      requesterId: employeeId,
       task: { runId: createId("run"), roomId, employeeId, depth, trigger, turn },
     });
     this.events.emit("approval-requested", {
@@ -292,6 +319,89 @@ export class RoomService {
       employeeId,
       targetId,
       summary: `${trigger.body.slice(0, 60)} → ${target?.displayName ?? targetId}`,
+    });
+  }
+
+  /** 批准招人：真正创建员工，并把结果写回房间——成功或失败都必须可见。 */
+  private async approveHire(pending: PendingApproval): Promise<void> {
+    const create = this.deps.createEmployee;
+    const draft = pending.draft;
+    const requester = this.deps.employees.get(pending.requesterId);
+    const name = requester?.displayName ?? "员工";
+
+    if (!create || !draft) {
+      await this.appendSystemMessage(pending.roomId, "招人申请无法执行：该能力已关闭。");
+      return;
+    }
+
+    const result = await create(draft);
+    await this.appendSystemMessage(
+      pending.roomId,
+      result.ok
+        ? `${name} 的招人申请已通过，新员工「${result.employee.displayName}」已创建，可在房间头部把它加入本房间。`
+        : `${name} 的招人申请未完成：${result.reason}`,
+    );
+  }
+
+  /** 结果类说明用系统消息落进房间，保证人类一定看得见。 */
+  private async appendSystemMessage(roomId: string, body: string): Promise<void> {
+    await this.appendMessage({ roomId, sender: { kind: "human" }, body, mentions: [], kind: "system" });
+  }
+
+  /**
+   * 受理招人申请：格式错误要说出来，数量要封顶，真正创建必须由人类批准。
+   */
+  private async handleHireRequests(
+    room: Room,
+    employee: Employee,
+    hire: { drafts: EmployeeDraft[]; errors: string[] },
+  ): Promise<void> {
+    const { policy, scheduler } = this.deps.config.get();
+    if (!this.deps.createEmployee || policy.employeeMayHire === "off") return;
+
+    for (const error of hire.errors) {
+      await this.appendSystemMessage(room.id, `${employee.displayName} 的招人申请格式有问题：${error}`);
+    }
+    if (hire.drafts.length === 0) return;
+
+    const used = this.hireCounts.get(room.id) ?? 0;
+    if (used >= scheduler.maxEmployeeCreationsPerRoom) {
+      await this.appendSystemMessage(
+        room.id,
+        `本房间的招人申请已达上限（${scheduler.maxEmployeeCreationsPerRoom} 条），${employee.displayName} 这次申请未被受理。`,
+      );
+      return;
+    }
+    if (hire.drafts.length > 1) {
+      await this.appendSystemMessage(
+        room.id,
+        `${employee.displayName} 一次提交了 ${hire.drafts.length} 条招人申请，只受理第一条。`,
+      );
+    }
+
+    const draft = hire.drafts[0] as EmployeeDraft;
+    this.hireCounts.set(room.id, used + 1);
+
+    const approvalId = createId("appr");
+    const summary = `招人申请：${draft.displayName}（${draft.framework}${
+      draft.permissionMode ? ` · ${draft.permissionMode}` : ""
+    }）`;
+    this.pendingApprovals.set(approvalId, {
+      kind: "hire",
+      targetId: draft.displayName,
+      roomId: room.id,
+      summary,
+      requesterId: employee.id,
+      draft,
+    });
+    this.events.emit("approval-requested", {
+      approvalId,
+      roomId: room.id,
+      employeeId: employee.id,
+      targetId: draft.displayName,
+      summary,
+      kind: "hire",
+      draft,
     });
   }
 
@@ -409,14 +519,22 @@ export class RoomService {
       const body = result.text.trim();
       if (body !== "") {
         const room = this.deps.rooms.get(task.roomId);
-        const parsed = parseMentions(body, this.candidates());
+        // 招人申请是带外协议：先从正文里剥出来，正文保持可读，申请走审批。
+        const hire = this.deps.createEmployee
+          ? extractEmployeeRequests(body, this.prompts.employeeRequestMarker)
+          : { body, drafts: [], errors: [] };
+        const visible = hire.body === "" ? "（提交了一条招人申请，见下方审批）" : hire.body;
+        const parsed = parseMentions(visible, this.candidates());
         const reply = await this.appendMessage({
           roomId: task.roomId,
           sender: { kind: "employee", employeeId: employee.id },
-          body,
+          body: visible,
           mentions: parsed.mentions,
         });
-        if (room) await this.followUpMentions(room, reply, task);
+        if (room) {
+          await this.followUpMentions(room, reply, task);
+          await this.handleHireRequests(room, employee, hire);
+        }
       }
 
       this.events.emit("run-finished", {
@@ -508,6 +626,7 @@ export class RoomService {
       ...(attachments.length === 0 ? [] : ["", this.attachmentBlock(attachments)]),
       ...(memory === "" ? [] : ["", memory]),
       ...(skills === "" ? [] : ["", skills]),
+      ...(this.hireGuideEnabled() ? ["", "<hiring>", this.prompts.employeeRequestGuide, "</hiring>"] : []),
       "",
       render(this.prompts.taskHeader, { employee: employee.displayName }),
       `<message from="${from}">`,
@@ -524,6 +643,18 @@ export class RoomService {
    * 单聊里更会说清楚「没有人可以 @」，避免对着空气喊。
    */
   private async teamBlock(room: Room, employee: Employee): Promise<string> {
+    return this.buildTeamBlock(room, employee);
+  }
+
+  /** 只有应用层提供了创建能力、且策略允许时才把招人协议告诉员工。 */
+  private hireGuideEnabled(): boolean {
+    return (
+      this.deps.createEmployee !== undefined &&
+      this.deps.config.get().policy.employeeMayHire === "confirm"
+    );
+  }
+
+  private async buildTeamBlock(room: Room, employee: Employee): Promise<string> {
     if (room.kind === "direct") {
       return ["<team>", this.prompts.teamDirect, "</team>"].join("\n");
     }
@@ -752,6 +883,7 @@ export class RoomService {
     mentions: Mention[];
     attachments?: Attachment[];
     messageId?: string;
+    kind?: Message["kind"];
   }): Promise<Message> {
     const message: Message = {
       id: input.messageId ?? createId("msg"),
@@ -760,7 +892,7 @@ export class RoomService {
       mentions: input.mentions,
       body: input.body,
       attachments: input.attachments ?? [],
-      kind: "chat",
+      kind: input.kind ?? "chat",
       createdAt: this.now().toISOString(),
     };
     await this.deps.messages.append(message);

@@ -310,11 +310,23 @@ export function RoomView(props: RoomViewProps) {
         <div key={approval.approvalId} className="approval">
           <AlertIcon size={17} />
           <div className="grow">
-            <strong>{nameOf(approval.targetId)}</strong> 被 @ 了，需要你确认才继续
+            {approval.kind === "hire" ? (
+              <>
+                <strong>{nameOf(approval.employeeId)}</strong> 申请招人：
+                <strong>{approval.targetId}</strong>
+              </>
+            ) : (
+              <>
+                <strong>{nameOf(approval.targetId)}</strong> 被 @ 了，需要你确认才继续
+              </>
+            )}
             <div className="why">{approval.summary}</div>
+            {approval.kind === "hire" && approval.draft?.systemPrompt && (
+              <div className="why">拟任职责：{approval.draft.systemPrompt}</div>
+            )}
           </div>
           <button className="primary" onClick={() => props.onResolveApproval(approval.approvalId, true)}>
-            允许
+            {approval.kind === "hire" ? "批准招人" : "允许"}
           </button>
           <button onClick={() => props.onResolveApproval(approval.approvalId, false)}>拒绝</button>
         </div>

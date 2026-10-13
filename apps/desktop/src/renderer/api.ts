@@ -48,6 +48,15 @@ export interface ApprovalEvent {
   employeeId: string;
   targetId: string;
   summary: string;
+  /** run = 员工之间的投递；hire = 招人申请。 */
+  kind?: "run" | "hire";
+  draft?: {
+    displayName: string;
+    framework: string;
+    model?: string;
+    systemPrompt?: string;
+    permissionMode?: string;
+  };
 }
 
 export interface CreateEmployeePayload {

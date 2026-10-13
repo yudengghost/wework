@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   ConfigStore,
@@ -22,6 +22,7 @@ import {
   type Employee,
   type Framework,
   type LauncherResolution,
+  type PermissionMode,
   type SkillInfo,
   type SkillsSettings,
 } from "@buddy/core";
@@ -79,6 +80,8 @@ export async function createServices(): Promise<AppServices> {
     cursors,
     prompts,
     attachments,
+    // 员工申请招人时也走这个入口，与界面创建行为完全一致。
+    createEmployee: (draft) => createEmployeeFromDraft({ dataDir, employees }, draft),
     skillsFor: async (employee: Employee) => {
       const catalog = await loadSkillCatalog(dataDir, config.get().skills);
       return catalog.filter((skill) => employee.skills.includes(skill.id));
@@ -174,4 +177,55 @@ export function defaultWorkspaceDir(
 export async function ensureDir(path: string): Promise<string> {
   await mkdir(path, { recursive: true });
   return path;
+}
+
+export interface EmployeeDraftInput {
+  displayName: string;
+  framework: Framework;
+  model?: string;
+  systemPrompt?: string;
+  skills?: string[];
+  permissionMode?: PermissionMode;
+  workspaceDir?: string;
+  stateDir?: string;
+}
+
+/**
+ * 创建员工的唯一入口：界面创建与「员工申请招人」都走这里，避免两条路行为分叉。
+ * 不抛异常，失败以 reason 返回，便于审批流程把原因写回房间。
+ */
+export async function createEmployeeFromDraft(
+  deps: { dataDir: string; employees: EmployeeStore },
+  draft: EmployeeDraftInput,
+): Promise<{ ok: true; employee: Employee } | { ok: false; reason: string }> {
+  try {
+    const displayName = draft.displayName.trim();
+    const takenDirs = deps.employees.list().map((item) => item.workspaceDir);
+    const workspaceDir =
+      draft.workspaceDir?.trim() || defaultWorkspaceDir(deps.dataDir, displayName, takenDirs);
+    const stateDir =
+      draft.stateDir?.trim() || join(deps.dataDir, "state", basename(workspaceDir));
+
+    await ensureDir(workspaceDir);
+    await ensureDir(stateDir);
+
+    const employee = await deps.employees.create({
+      displayName,
+      framework: draft.framework,
+      workspaceDir,
+      stateDir,
+      model: draft.model?.trim() ? draft.model.trim() : undefined,
+      systemPrompt: draft.systemPrompt?.trim() ? draft.systemPrompt : undefined,
+      skills: draft.skills ?? [],
+      permissions: {
+        mode: draft.permissionMode ?? "workspace-write",
+        allowedTools: [],
+        disallowedTools: [],
+        requireApprovalFor: [],
+      },
+    });
+    return { ok: true, employee };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
 }

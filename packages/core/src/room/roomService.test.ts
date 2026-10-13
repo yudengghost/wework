@@ -12,6 +12,7 @@ import { EmployeeStore } from "../employee/employeeStore";
 import { EventBus } from "../events/eventBus";
 import { MemoryStore } from "../memory/memoryStore";
 import type { SkillInfo } from "../skills/skillCatalog";
+import type { EmployeeDraft } from "./employeeRequest";
 import { FileStore } from "../storage/fileStore";
 import { CursorStore } from "./cursorStore";
 import { MessageLog } from "./messageLog";
@@ -37,6 +38,7 @@ interface Harness {
   maxPerEmployee: (employeeId: string) => number;
   cursors: CursorStore;
   memory: MemoryStore;
+  hires: EmployeeDraft[];
   setSkills: (value: SkillInfo[]) => void;
 }
 
@@ -72,6 +74,7 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
   let skills: SkillInfo[] = [];
 
   const calls: Call[] = [];
+  const hires: EmployeeDraft[] = [];
   const replies = new Map<string, string>();
   let behavior: Behavior =
     options.behavior ??
@@ -150,6 +153,18 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     events,
     memory,
     cursors,
+    createEmployee: async (draft) => {
+      hires.push(draft);
+      const employee = await employees.create({
+        displayName: draft.displayName,
+        framework: draft.framework,
+        workspaceDir: join(workDir, "ws", draft.displayName),
+        stateDir: join(workDir, "state", draft.displayName),
+        permissions: { mode: draft.permissionMode ?? "workspace-write" },
+        skills: draft.skills ?? [],
+      });
+      return { ok: true, employee };
+    },
     skillsFor: async (employee: Employee) =>
       skills.filter((skill) => employee.skills.includes(skill.id)),
     createAdapter: async (employee: Employee): Promise<AdapterCreation> => ({
@@ -164,6 +179,7 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     employees,
     rooms,
     calls,
+    hires,
     events,
     replies,
     setBehavior: (value) => {
@@ -601,5 +617,122 @@ describe("RoomService", () => {
 
     expect(harness.cursors.get(coder.id, roomId)).toBeUndefined();
     expect(await harness.memory.countPending(coder.id)).toBe(0);
+  });
+
+  // ---- 招人（模拟 HR）：同一条回复 → 审批 → 执行链路，单独覆盖它的护栏 ----
+
+  const hireBlock = (json: string): string => `\`\`\`@@create-employee\n${json}\n\`\`\``;
+
+  it("员工提交招人申请时只产生待审批，不会直接创建", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({
+      text: `我们需要一位测试。\n\n${hireBlock('{"displayName":"新招的测试","framework":"codex","permissionMode":"read-only"}')}`,
+    }));
+    const approvals: { approvalId: string; kind?: string; summary: string }[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 帮我招个测试");
+    await harness.service.waitForIdle();
+
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]?.kind).toBe("hire");
+    expect(approvals[0]?.summary).toContain("新招的测试");
+    // 还没批准，员工名册不该多出人来
+    expect(harness.employees.list().map((item) => item.displayName)).not.toContain("新招的测试");
+    // 协议块不该出现在房间正文里
+    const transcript = await harness.service.listMessages(roomId);
+    expect(transcript[1]?.body).toContain("我们需要一位测试");
+    expect(transcript[1]?.body).not.toContain("@@create-employee");
+  });
+
+  it("批准后才真正创建员工，并把结果写回房间", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({
+      text: hireBlock('{"displayName":"新招的测试","framework":"codex","permissionMode":"read-only"}'),
+    }));
+    const approvals: string[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload.approvalId));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招人");
+    await harness.service.waitForIdle();
+    await harness.service.resolveApproval(approvals[0] as string, true);
+    await harness.service.waitForIdle();
+
+    expect(harness.hires.map((draft) => draft.displayName)).toEqual(["新招的测试"]);
+    expect(harness.employees.list().map((item) => item.displayName)).toContain("新招的测试");
+    const transcript = await harness.service.listMessages(roomId);
+    expect(transcript.some((message) => message.body.includes("已通过"))).toBe(true);
+  });
+
+  it("拒绝则什么都不发生", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({
+      text: hireBlock('{"displayName":"新招的测试","framework":"codex"}'),
+    }));
+    const approvals: string[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload.approvalId));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招人");
+    await harness.service.waitForIdle();
+    await harness.service.resolveApproval(approvals[0] as string, false);
+    await harness.service.waitForIdle();
+
+    expect(harness.hires).toEqual([]);
+  });
+
+  it("申请数量封顶，超出后不再受理", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    await harness.config.update({ scheduler: { maxEmployeeCreationsPerRoom: 1 } });
+    harness.setBehavior((request) =>
+      request.prompt.includes("<hiring>")
+        ? { text: hireBlock('{"displayName":"新招的测试","framework":"codex"}') }
+        : { text: "好的" },
+    );
+    const approvals: unknown[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招第一个人");
+    await harness.service.waitForIdle();
+    await harness.service.submitHumanMessage(roomId, "@小码 再招一个");
+    await harness.service.waitForIdle();
+
+    expect(approvals).toHaveLength(1);
+    const transcript = await harness.service.listMessages(roomId);
+    expect(transcript.some((message) => message.body.includes("已达上限"))).toBe(true);
+  });
+
+  it("格式写错时明确报错，且不产生审批", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    harness.setBehavior(() => ({ text: "```@@create-employee\n{ 坏掉的 json }\n```" }));
+    const approvals: unknown[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招人");
+    await harness.service.waitForIdle();
+
+    expect(approvals).toEqual([]);
+    const transcript = await harness.service.listMessages(roomId);
+    expect(transcript.some((message) => message.body.includes("格式有问题"))).toBe(true);
+  });
+
+  it("关闭该能力时既不注入协议说明，也不受理申请", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    await harness.config.update({ policy: { employeeMayHire: "off" } });
+    harness.setBehavior(() => ({ text: hireBlock('{"displayName":"新招的测试","framework":"codex"}') }));
+    const approvals: unknown[] = [];
+    harness.events.on("approval-requested", (payload) => approvals.push(payload));
+
+    await harness.service.submitHumanMessage(roomId, "@小码 招人");
+    await harness.service.waitForIdle();
+
+    expect(harness.calls[0]?.prompt).not.toContain("<hiring>");
+    expect(approvals).toEqual([]);
+    expect(harness.hires).toEqual([]);
   });
 });

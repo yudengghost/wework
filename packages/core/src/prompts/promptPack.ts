@@ -41,6 +41,18 @@ export const defaultPrompts = {
   attachmentsGuide:
     "路径相对你的工作目录。需要时用工具打开它们；图片也可以直接看。不要修改原始附件以外的无关文件。",
 
+  /** 创建员工申请的协议块标记（写在代码块的语言标记位置）。 */
+  employeeRequestMarker: "@@create-employee",
+  /** 允许员工申请招人时的说明（只有开启该能力才注入）。 */
+  employeeRequestGuide: [
+    "如果你判断需要一位新同事，可以提交「招人申请」，由用户审批后才会真正创建：",
+    "在回复里放一个围栏代码块，语言标记位置写 @@create-employee，块体是这段 JSON：",
+    '{"displayName":"名字","framework":"codex","systemPrompt":"这位同事的职责","permissionMode":"read-only|workspace-write|full"}',
+    "只填用得上的字段：可选的字段（如 model）用不上就整项省略，不要留空字符串。",
+    "请同时说明为什么要招这个人、以及期望它负责什么；一次最多申请一位。",
+    "申请只是提议，用户可能拒绝；不要假设新同事已经存在或已经接手。",
+  ].join("\n"),
+
   /** 归纳长期记忆用的 system prompt 与指令。 */
   distillSystem: "你是记忆整理器，只做归纳，不执行任何任务。",
   distillInstruction: [

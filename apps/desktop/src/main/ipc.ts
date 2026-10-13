@@ -10,6 +10,7 @@ import type {
 import { app, dialog, ipcMain, type BrowserWindow } from "electron";
 
 import {
+  createEmployeeFromDraft,
   defaultWorkspaceDir,
   ensureDir,
   listSkills,
@@ -101,31 +102,10 @@ export function registerIpc(
   handle("launcher:probe", () => probeFrameworks(config));
 
   handle<CreateEmployeePayload, Employee>("employee:create", async (payload) => {
-    const takenDirs = employees.list().map((employee) => employee.workspaceDir);
-    const workspaceDir =
-      payload.workspaceDir?.trim() ||
-      defaultWorkspaceDir(dataDir, payload.displayName.trim(), takenDirs);
-    const stateDir =
-      payload.stateDir?.trim() || join(dataDir, "state", workspaceDir.split(/[\\/]/).pop() ?? "x");
-
-    await ensureDir(workspaceDir);
-    await ensureDir(stateDir);
-
-    return employees.create({
-      displayName: payload.displayName.trim(),
-      framework: payload.framework,
-      workspaceDir,
-      stateDir,
-      model: payload.model?.trim() ? payload.model.trim() : undefined,
-      systemPrompt: payload.systemPrompt?.trim() ? payload.systemPrompt : undefined,
-      skills: payload.skills ?? [],
-      permissions: {
-        mode: payload.permissionMode,
-        allowedTools: [],
-        disallowedTools: [],
-        requireApprovalFor: [],
-      },
-    });
+    // 与「员工申请招人」共用同一个创建入口，两条路行为一致。
+    const result = await createEmployeeFromDraft({ dataDir, employees }, payload);
+    if (!result.ok) throw new Error(result.reason);
+    return result.employee;
   });
 
   handle<{ id: string; patch: Partial<CreateEmployeePayload> }, Employee>(

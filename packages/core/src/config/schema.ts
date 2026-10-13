@@ -17,6 +17,8 @@ export const schedulerSettingsSchema = z.object({
   wallClockBudgetMs: z.number().int().positive().default(600000),
   /** 上下文条数上限：冷启动时作为起步窗口，之后作为增量的封顶。 */
   contextWindowMessages: z.number().int().positive().default(50),
+  /** 每个房间最多批准创建多少名员工，防止一个员工无限招人。 */
+  maxEmployeeCreationsPerRoom: z.number().int().nonnegative().default(3),
 });
 export type SchedulerSettings = z.infer<typeof schedulerSettingsSchema>;
 
@@ -25,6 +27,8 @@ export const policySettingsSchema = z.object({
   employeeMentionsAll: mentionPolicySchema.default("confirm"),
   humanMentionsEmployee: mentionPolicySchema.default("auto"),
   defaultPermissionMode: permissionModeSchema.default("workspace-write"),
+  /** 员工能否申请招人（模拟 HR）；confirm = 必须用户点允许才会真正创建。 */
+  employeeMayHire: z.enum(["off", "confirm"]).default("confirm"),
 });
 export type PolicySettings = z.infer<typeof policySettingsSchema>;
 
