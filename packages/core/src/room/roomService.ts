@@ -11,6 +11,7 @@ import { defaultPromptPack, render, type PromptPack } from "../prompts/promptPac
 import type { SkillInfo } from "../skills/skillCatalog";
 import { parseMentions } from "./mentions";
 import { extractEmployeeRequests, type EmployeeDraft } from "./employeeRequest";
+import { createRosterFileWriter, type RosterEntry, type RosterWriter } from "./rosterFile";
 import type { CursorStore } from "./cursorStore";
 import type { MessageLog } from "./messageLog";
 import type { RoomStore } from "./roomStore";
@@ -47,6 +48,8 @@ export interface RoomServiceDeps {
   createEmployee?: (
     draft: EmployeeDraft,
   ) => Promise<{ ok: true; employee: Employee } | { ok: false; reason: string }>;
+  /** 名册文件写入器；不传则名册只给摘要、不给完整人设的入口。 */
+  rosterFile?: RosterWriter;
   /** 面向模型的文案；不传则用内置默认值。 */
   prompts?: PromptPack;
   /** 该员工启用的技能，用于在提示词里告诉它有哪些能力可用。 */
@@ -482,7 +485,15 @@ export class RoomService {
               task.trigger.attachments,
             )
           : [];
-      const prompt = await this.buildPrompt(task, employee, workspaceFiles);
+      // 被授权招人的员工额外拿到一份名册文件：完整人设放文件里，按需读取。
+      const rosterPath =
+        this.deps.rosterFile && this.hireGuideEnabled(employee)
+          ? await this.deps.rosterFile.write(
+              employee.workspaceDir,
+              this.rosterEntries(task.roomId, employee),
+            )
+          : undefined;
+      const prompt = await this.buildPrompt(task, employee, workspaceFiles, rosterPath);
       const result = await created.adapter.run(
         {
           prompt,
@@ -602,6 +613,7 @@ export class RoomService {
     task: RunTask,
     employee: Employee,
     attachments: WorkspaceAttachment[] = [],
+    rosterPath?: string,
   ): Promise<string> {
     const { contextWindowMessages } = this.deps.config.get().scheduler;
     const cursor = this.deps.cursors.get(employee.id, task.roomId) ?? null;
@@ -633,7 +645,7 @@ export class RoomService {
         ? ["", "<hiring>", this.prompts.employeeRequestGuide, "</hiring>"]
         : []),
       ...(this.hireGuideEnabled(employee)
-        ? ["", this.companyBlock(task.roomId, employee)]
+        ? ["", this.companyBlock(task.roomId, employee, rosterPath)]
         : []),
       "",
       render(this.prompts.taskHeader, { employee: employee.displayName }),
@@ -658,7 +670,21 @@ export class RoomService {
    * 招人协议只给「被显式授权」的员工：应用要接入创建能力、全局策略没关、
    * 且这位员工自己打开了 canHire。
    */
-  private companyBlock(roomId: string, employee: Employee): string {
+  /** 名册数据：摘要进提示词，完整人设进文件。 */
+  private rosterEntries(roomId: string, employee: Employee): RosterEntry[] {
+    const members = new Set(this.deps.rooms.get(roomId)?.memberIds ?? []);
+    return this.deps.employees.list().map((item) => ({
+      id: item.id,
+      displayName: item.displayName,
+      framework: item.framework,
+      permissionMode: item.permissions.mode,
+      inThisRoom: members.has(item.id),
+      isYou: item.id === employee.id,
+      role: item.systemPrompt ?? "",
+    }));
+  }
+
+  private companyBlock(roomId: string, employee: Employee, rosterPath?: string): string {
     const room = this.deps.rooms.get(roomId);
     const members = new Set(room?.memberIds ?? []);
     const roster = this.deps.employees.list();
@@ -677,6 +703,9 @@ export class RoomService {
       "<company_roster>",
       render(this.prompts.companyRosterHeader, { count: roster.length }),
       ...lines,
+      ...(rosterPath === undefined
+        ? []
+        : [render(this.prompts.companyRosterLookup, { path: rosterPath })]),
       this.prompts.companyRosterGuide,
       this.prompts.companyRosterMentionLimit,
       "</company_roster>",

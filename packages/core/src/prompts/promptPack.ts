@@ -63,6 +63,9 @@ export const defaultPrompts = {
     "注意：你只能 @ 本房间的成员。需要名册里的其他人参与时，请让用户先把它加入本房间，否则你的 @ 不会送达。",
   /** 员工没填人设时的占位。 */
   companyRosterNoRole: "（未填写职责）",
+  /** 渐进式披露：告诉员工完整人设去哪里读。占位符：{path} */
+  companyRosterLookup:
+    "上面每人的职责只是一行摘要。需要看某位同事的完整职责说明时，读取 {path}（内容是每人的完整人设）。",
 
   /** 归纳长期记忆用的 system prompt 与指令。 */
   distillSystem: "你是记忆整理器，只做归纳，不执行任何任务。",

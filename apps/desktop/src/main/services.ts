@@ -10,6 +10,7 @@ import {
   MemoryStore,
   MessageLog,
   loadPromptPack,
+  createRosterFileWriter,
   RoomService,
   RoomStore,
   createAdapterForEmployee,
@@ -82,6 +83,7 @@ export async function createServices(): Promise<AppServices> {
     attachments,
     // 员工申请招人时也走这个入口，与界面创建行为完全一致。
     createEmployee: (draft) => createEmployeeFromDraft({ dataDir, employees }, draft),
+    rosterFile: createRosterFileWriter(),
     skillsFor: async (employee: Employee) => {
       const catalog = await loadSkillCatalog(dataDir, config.get().skills);
       return catalog.filter((skill) => employee.skills.includes(skill.id));

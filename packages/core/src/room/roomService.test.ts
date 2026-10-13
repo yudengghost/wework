@@ -13,6 +13,7 @@ import { EventBus } from "../events/eventBus";
 import { MemoryStore } from "../memory/memoryStore";
 import type { SkillInfo } from "../skills/skillCatalog";
 import type { EmployeeDraft } from "./employeeRequest";
+import type { RosterEntry } from "./rosterFile";
 import { FileStore } from "../storage/fileStore";
 import { CursorStore } from "./cursorStore";
 import { MessageLog } from "./messageLog";
@@ -39,6 +40,7 @@ interface Harness {
   cursors: CursorStore;
   memory: MemoryStore;
   hires: EmployeeDraft[];
+  rosterWrites: RosterEntry[][];
   setSkills: (value: SkillInfo[]) => void;
 }
 
@@ -75,6 +77,7 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
 
   const calls: Call[] = [];
   const hires: EmployeeDraft[] = [];
+  const rosterWrites: RosterEntry[][] = [];
   const replies = new Map<string, string>();
   let behavior: Behavior =
     options.behavior ??
@@ -165,6 +168,12 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
       });
       return { ok: true, employee };
     },
+    rosterFile: {
+      write: async (_dir, entries) => {
+        rosterWrites.push(entries);
+        return ".buddy/roster.json";
+      },
+    },
     skillsFor: async (employee: Employee) =>
       skills.filter((skill) => employee.skills.includes(skill.id)),
     createAdapter: async (employee: Employee): Promise<AdapterCreation> => ({
@@ -180,6 +189,7 @@ async function makeHarness(options: { behavior?: Behavior } = {}): Promise<Harne
     rooms,
     calls,
     hires,
+    rosterWrites,
     events,
     replies,
     setBehavior: (value) => {
@@ -811,5 +821,33 @@ describe("RoomService", () => {
     await harness.service.waitForIdle();
 
     expect(harness.calls[0]?.prompt).not.toContain("<company_roster>");
+  });
+
+  it("渐进式披露：提示词只给摘要，完整人设写进名册文件", async () => {
+    const harness = await makeHarness();
+    const { roomId } = await seedTeam(harness);
+    const longRole = `负责数据迁移与清洗。${"补充说明".repeat(30)}这是完整人设的尾部标记`;
+    await harness.employees.create({
+      displayName: "数据同事",
+      framework: "claude-code",
+      workspaceDir: join(workDir, "ws", "data"),
+      stateDir: join(workDir, "state", "data"),
+      systemPrompt: longRole,
+      permissions: { mode: "read-only" },
+      skills: [],
+    });
+
+    await harness.service.submitHumanMessage(roomId, "@小码 看看要不要招人");
+    await harness.service.waitForIdle();
+
+    const prompt = harness.calls[0]?.prompt ?? "";
+    // 提示词里点名了它，并给出了去哪读完整人设
+    expect(prompt).toContain("数据同事");
+    expect(prompt).toContain(".buddy/roster.json");
+    // 但完整人设没进提示词——这正是渐进式披露的意义
+    expect(prompt).not.toContain("这是完整人设的尾部标记");
+    // 完整内容在写出去的名册文件里
+    const write = harness.rosterWrites.at(-1) ?? [];
+    expect(write.find((entry) => entry.displayName === "数据同事")?.role).toBe(longRole);
   });
 });
