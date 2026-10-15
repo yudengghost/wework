@@ -91,17 +91,18 @@ describe("运行轨迹的措辞", () => {
 
   it("员工自己工作目录里的文件显示成相对路径", () => {
     // 取自一次真实运行：codex 的 file_change 给的是绝对路径，铺开有三行长
+    // （路径本身换成通用样例，不在公开仓库里带作者本机的目录）
     const step = {
       at: "",
       kind: "tool" as const,
       tool: "file_change",
       detail:
-        "E:\\AIWorkSpace\\Buddy\\.scratch\\vis-data\\workspaces\\emp_demo_coder\\notes\\a.md (add)、" +
-        "E:\\AIWorkSpace\\Buddy\\.scratch\\vis-data\\workspaces\\emp_demo_coder\\notes\\b.md (add)",
+        "D:\\wework-data\\workspaces\\emp_demo_coder\\notes\\a.md (add)、" +
+        "D:\\wework-data\\workspaces\\emp_demo_coder\\notes\\b.md (add)",
     };
     expect(
       describeStep(step, {
-        workspaceDir: "E:\\AIWorkSpace\\Buddy\\.scratch\\vis-data\\workspaces\\emp_demo_coder",
+        workspaceDir: "D:\\wework-data\\workspaces\\emp_demo_coder",
       }),
     ).toBe("改动文件：notes\\a.md (add)、notes\\b.md (add)");
   });
